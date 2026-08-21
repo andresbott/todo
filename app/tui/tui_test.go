@@ -320,8 +320,13 @@ func TestDeleteCategorySubtree(t *testing.T) {
 	if len(m.doc.Roots) != 0 {
 		t.Errorf("deleting the only category should empty the document")
 	}
-	if strings.TrimSpace(readFile(t, path)) != "" {
-		t.Errorf("file should be empty, got %q", readFile(t, path))
+	// The file keeps the managed guide but holds no task/category content.
+	on := readFile(t, path)
+	if !strings.Contains(on, "<!-- todo:guide") {
+		t.Errorf("an emptied file should still carry the guide, got %q", on)
+	}
+	if reloaded := todo.Parse(on); len(reloaded.Roots) != 0 || reloaded.Preamble != "" {
+		t.Errorf("an emptied file should reload to an empty document, got %d roots / preamble %q", len(reloaded.Roots), reloaded.Preamble)
 	}
 }
 

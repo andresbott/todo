@@ -2,6 +2,7 @@ package todo
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -30,9 +31,32 @@ func Load(path string) (*Document, error) {
 	return Parse(string(b)), nil
 }
 
-// Save writes the document back to path in canonical markdown form.
+// Save writes the document back to path in canonical markdown form, led by the
+// app-managed guide block (see FileContent). It writes to a temporary file in
+// the same directory and renames it over the target: the rename is atomic, so a
+// concurrent reader — notably the app's own change-poll (see the tui package) —
+// never observes a half-written file.
 func (d *Document) Save(path string) error {
-	return os.WriteFile(path, []byte(d.Render()), 0o644) //nolint:gosec // 0644 is intentional: todo files are meant to be user-readable and greppable
+	f, err := os.CreateTemp(filepath.Dir(path), ".todo-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if _, err := f.WriteString(d.FileContent()); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	// CreateTemp makes the file 0600; todo files are meant to be user-readable.
+	if err := os.Chmod(tmp, 0o644); err != nil { //nolint:gosec // 0644 is intentional: todo files are meant to be readable and greppable
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // Parse turns markdown source into a Document. Headers become nested
@@ -41,6 +65,10 @@ func (d *Document) Save(path string) error {
 // the first header/task is kept verbatim as the preamble; stray non-indented
 // prose elsewhere is dropped (the app owns the file format).
 func Parse(src string) *Document {
+	// Remove the app-managed guide from the raw source before parsing: it is an
+	// HTML comment whose own example lines (`- [ ]`, `#`) would otherwise be
+	// mis-parsed as real tasks and headers.
+	src = stripGuide(src)
 	doc := &Document{}
 	lines := strings.Split(src, "\n")
 

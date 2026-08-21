@@ -6,6 +6,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -45,6 +46,11 @@ type model struct {
 	width   int
 	height  int
 
+	// lastContent is the exact file content todo last read or wrote. The poll
+	// loop compares the file against it to tell an external edit (reload) from
+	// the app's own save (ignore).
+	lastContent string
+
 	mode     mode
 	form     form
 	target   formTarget
@@ -81,17 +87,24 @@ func newModel(path string) (model, error) {
 	if err != nil {
 		return model{}, err
 	}
+	// Snapshot the raw bytes as the change-detection baseline. Best-effort: a
+	// read error (e.g. the file doesn't exist yet) just leaves an empty
+	// baseline, which the first save replaces.
+	content, _ := os.ReadFile(path) //nolint:gosec // path is the user-provided file the app exists to read
 	return model{
-		path:      path,
-		version:   metainfo.Version,
-		doc:       doc,
-		tree:      newTree(doc),
-		mode:      modeMain,
-		snapshots: map[*todo.Item]todo.DoneStates{},
+		path:        path,
+		version:     metainfo.Version,
+		doc:         doc,
+		tree:        newTree(doc),
+		mode:        modeMain,
+		snapshots:   map[*todo.Item]todo.DoneStates{},
+		lastContent: string(content),
 	}, nil
 }
 
-func (m model) Init() tea.Cmd { return nil }
+// Init starts the file-poll loop that keeps the view in sync with external
+// edits to the open file.
+func (m model) Init() tea.Cmd { return pollCmd() }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -101,6 +114,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.form.setWidth(msg.Width)
 		}
 		return m, nil
+	case reloadTickMsg:
+		// Probe the file and re-arm the next tick; the probe runs off-goroutine.
+		return m, tea.Batch(m.reloadCheckCmd(), pollCmd())
+	case fileReloadedMsg:
+		return m.handleReload(msg)
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -376,13 +394,16 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// save writes the document to disk, recording any error for the footer.
+// save writes the document to disk, recording any error for the footer. On
+// success it refreshes lastContent to exactly what was written, so the poll
+// loop recognises this as our own change and does not reload over it.
 func (m *model) save() {
 	if err := m.doc.Save(m.path); err != nil {
 		m.err = err
 		return
 	}
 	m.err = nil
+	m.lastContent = m.doc.FileContent()
 }
 
 func (m model) View() string {
