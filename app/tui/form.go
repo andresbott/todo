@@ -1,0 +1,203 @@
+package tui
+
+import (
+	"strings"
+
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+type formFocus int
+
+const (
+	focusTitle formFocus = iota
+	focusDesc
+	focusSave
+	focusCancel
+)
+
+// form is the add/edit modal: a title input plus, for a task, a multi-line
+// description; a category form shows the title only. Save/Cancel sit below.
+type form struct {
+	title   textinput.Model
+	desc    textarea.Model
+	focus   formFocus
+	isTask  bool // false → category form (title only)
+	editing bool // false → adding (only affects the window title)
+	width   int  // terminal width, for sizing
+}
+
+func newForm(titleVal, descVal string, isTask, editing bool) form {
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.CharLimit = 200
+	ti.SetValue(titleVal)
+
+	ta := textarea.New()
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.SetValue(descVal)
+	ta.Blur()
+
+	f := form{title: ti, desc: ta, isTask: isTask, editing: editing, focus: focusTitle}
+	f.title.Focus()
+	return f
+}
+
+// ring is the focus order: the title, then (for a task) the description, then
+// the Save and Cancel buttons.
+func (f form) ring() []formFocus {
+	if f.isTask {
+		return []formFocus{focusTitle, focusDesc, focusSave, focusCancel}
+	}
+	return []formFocus{focusTitle, focusSave, focusCancel}
+}
+
+// focusStep moves focus dir steps around the ring, wrapping, and returns the
+// blink command of whatever input gained focus.
+func (f *form) focusStep(dir int) tea.Cmd {
+	r := f.ring()
+	idx := 0
+	for i, x := range r {
+		if x == f.focus {
+			idx = i
+			break
+		}
+	}
+	f.focus = r[((idx+dir)%len(r)+len(r))%len(r)]
+	return f.applyFocus()
+}
+
+// applyFocus focuses the input matching f.focus and blurs the rest.
+func (f *form) applyFocus() tea.Cmd {
+	var cmd tea.Cmd
+	if f.focus == focusTitle {
+		cmd = f.title.Focus()
+	} else {
+		f.title.Blur()
+	}
+	if f.focus == focusDesc {
+		cmd = f.desc.Focus()
+	} else {
+		f.desc.Blur()
+	}
+	return cmd
+}
+
+func (f form) modalWidth() int {
+	w := f.width - 8
+	if w > 72 {
+		w = 72
+	}
+	if w < 30 {
+		w = 30
+	}
+	return w
+}
+
+// contentWidth is the usable width inside the modal border and padding.
+func (f form) contentWidth() int { return f.modalWidth() - 4 }
+
+func (f *form) setWidth(w int) {
+	f.width = w
+	iw := f.contentWidth()
+	f.title.Width = iw - 1
+	f.desc.SetWidth(iw - 2) // the description box's own border adds 2
+	f.desc.SetHeight(6)
+}
+
+// update feeds a message to the focused text input (typing, cursor motion).
+func (f form) update(msg tea.Msg) (form, tea.Cmd) {
+	var cmd tea.Cmd
+	switch f.focus {
+	case focusTitle:
+		f.title, cmd = f.title.Update(msg)
+	case focusDesc:
+		f.desc, cmd = f.desc.Update(msg)
+	}
+	return f, cmd
+}
+
+// values returns the trimmed title and description entered.
+func (f form) values() (title, desc string) {
+	return strings.TrimSpace(f.title.Value()), strings.Trim(f.desc.Value(), "\n")
+}
+
+func (f form) view() string {
+	title := "Add task"
+	switch {
+	case !f.isTask && f.editing:
+		title = "Rename category"
+	case !f.isTask:
+		title = "Add category"
+	case f.editing:
+		title = "Edit task"
+	}
+
+	var b strings.Builder
+	b.WriteString(fieldLabel("Title", f.focus == focusTitle))
+	b.WriteString("\n")
+	b.WriteString(f.underline(f.title.View(), f.focus == focusTitle))
+	if f.isTask {
+		b.WriteString("\n\n")
+		b.WriteString(fieldLabel("Description", f.focus == focusDesc))
+		b.WriteString("\n")
+		b.WriteString(f.descBox())
+	}
+
+	b.WriteString("\n\n")
+	buttons := lipgloss.JoinHorizontal(lipgloss.Top,
+		button("Save", f.focus == focusSave), "   ", button("Cancel", f.focus == focusCancel))
+	b.WriteString(lipgloss.NewStyle().Width(f.contentWidth()).Align(lipgloss.Center).Render(buttons))
+
+	b.WriteString("\n\n")
+	sep := helpTextStyle.Render(" · ")
+	b.WriteString(hint("tab", "Move") + sep + hint("enter", "Save") + sep + hint("esc", "Cancel"))
+
+	body := lipgloss.NewStyle().Padding(0, 1).Render(b.String())
+	return titledBox(title, body, f.modalWidth(), lipgloss.Height(body)+2, true)
+}
+
+// underline renders a value over a single accent/dim bottom border — the
+// title field's affordance.
+func (f form) underline(view string, focused bool) string {
+	c := colDim
+	if focused {
+		c = colAccent
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderForeground(c).
+		Width(f.contentWidth()).
+		Render(view)
+}
+
+// descBox wraps the description textarea in a rounded border, accented when
+// focused.
+func (f form) descBox() string {
+	c := colDim
+	if f.focus == focusDesc {
+		c = colAccent
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(c).
+		Render(f.desc.View())
+}
+
+func fieldLabel(s string, focused bool) string {
+	if focused {
+		return focusLabelStyle.Render(s)
+	}
+	return labelStyle.Render(s)
+}
+
+func button(label string, focused bool) string {
+	st := lipgloss.NewStyle().Foreground(colDim)
+	if focused {
+		st = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	}
+	return st.Render("[ " + label + " ]")
+}
