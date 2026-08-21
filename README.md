@@ -97,7 +97,9 @@ An example task file:
 | `e` | Edit the selected item's title (and a task's description) |
 | `d` | Delete the selected item (and its subtree) — asks to confirm |
 | `D` | Remove every completed task (keeping any with unfinished sub-tasks) — asks to confirm |
-| `q` / `esc` | Quit |
+| `/` | Search / filter the list (see below) |
+| `q` | Quit |
+| `esc` | Clear an active search, or quit when there is none |
 
 Tasks always live under a category — there are no root-level tasks. The tree
 always ends with a **`+ new category`** row: select it and press `c` (or
@@ -106,6 +108,16 @@ subcategory instead.
 
 In the add/edit dialog: `tab` moves between fields, `enter` saves (it inserts a
 newline while you're in the description box), `esc` cancels.
+
+## Search
+
+Press `/` to filter the list as you type — a grep over task/category titles and
+task descriptions. The whole path to every match is kept, so a hit deep in a
+subtask keeps its parent tasks and category visible (searching `cat` still shows
+the tree down to a "catacombs" subtask), while non-matching branches are hidden;
+the matched text is highlighted. `enter` keeps the filter and returns you to
+navigating the results, `esc` clears it, and pressing `/` again refines the
+current query.
 
 ## Completing a parent
 

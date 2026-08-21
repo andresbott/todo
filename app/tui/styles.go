@@ -31,7 +31,37 @@ var (
 	headerHintSty  = lipgloss.NewStyle().Foreground(colDim)
 
 	focusLabelStyle = lipgloss.NewStyle().Foreground(colAccent)
+
+	// matchStyle marks a search hit: black on bright yellow so it stands out both
+	// on a plain row and behind the accent-coloured selected row.
+	matchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("11")).Bold(true)
+	// plainStyle is the identity style: the highlight base for unstyled text.
+	plainStyle = lipgloss.NewStyle()
 )
+
+// highlight renders s with every case-insensitive occurrence of query drawn in
+// matchStyle and the rest in base. An empty query just renders s in base.
+// Matching is byte-indexed on the lower-cased strings, which lines up with the
+// original for the ASCII/Latin text these lists hold.
+func highlight(s, query string, base lipgloss.Style) string {
+	if query == "" {
+		return base.Render(s)
+	}
+	hay := strings.ToLower(s)
+	needle := strings.ToLower(query)
+	var b strings.Builder
+	for {
+		i := strings.Index(hay, needle)
+		if i < 0 {
+			b.WriteString(base.Render(s))
+			return b.String()
+		}
+		b.WriteString(base.Render(s[:i]))
+		b.WriteString(matchStyle.Render(s[i : i+len(needle)]))
+		s = s[i+len(needle):]
+		hay = hay[i+len(needle):]
+	}
+}
 
 // hint renders one "key: label" help entry — key accented, ": label" dim.
 func hint(k, label string) string {
