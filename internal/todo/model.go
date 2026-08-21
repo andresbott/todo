@@ -1,0 +1,192 @@
+// Package todo is the pure domain of the TODO app: the in-memory tree parsed
+// from a markdown file, the operations over it (toggle, cascade-complete, and
+// the snapshot/restore that powers accidental-complete undo), and the
+// markdown (de)serialization. It has no dependency on the TUI — everything
+// here is testable in isolation.
+package todo
+
+// Kind distinguishes a category (a markdown header) from a task (a checkbox
+// list item).
+type Kind int
+
+const (
+	// Category is a markdown header (`#`..`######`); it groups sub-categories
+	// and tasks and carries no Done/Description of its own.
+	Category Kind = iota
+	// Task is a checkbox list item (`- [ ]` / `- [x]`); it carries a Done flag
+	// and a free-form Description, and may nest sub-tasks.
+	Task
+)
+
+// Item is one node of the TODO tree. Categories nest by header level and hold
+// sub-categories and tasks; tasks nest by list indentation and hold sub-tasks.
+// Only tasks use Done and Description; only categories use Level.
+type Item struct {
+	Kind        Kind
+	Title       string
+	Level       int    // Category only: header level 1..6
+	Done        bool   // Task only
+	Description string // Task only: free-form text shown in the right pane
+	Children    []*Item
+	Parent      *Item // nil for a root item
+}
+
+// Document is a parsed TODO file: its root items plus any verbatim text that
+// appeared before the first header or task (preserved across a save so a title
+// or intro paragraph at the top of the file is never lost).
+type Document struct {
+	Preamble string
+	Roots    []*Item
+}
+
+// IsTask reports whether the item is a task (rather than a category).
+func (it *Item) IsTask() bool { return it.Kind == Task }
+
+// NewTask builds a task item (with no children or parent set yet).
+func NewTask(title, description string, done bool) *Item {
+	return &Item{Kind: Task, Title: title, Description: description, Done: done}
+}
+
+// AppendChild appends c as the last child of it, setting c.Parent.
+func (it *Item) AppendChild(c *Item) {
+	c.Parent = it
+	it.Children = append(it.Children, c)
+}
+
+// AppendTask adds task as the last *task* child of it — before any
+// subcategory children — and sets task.Parent. This preserves the invariant
+// that a category's direct tasks precede its subcategories, which is what keeps
+// the markdown round-tripping: a task written after a `##` subheader would
+// otherwise re-parent under that subheader when the file is reloaded. For a
+// task parent (a subtask) there are no category children, so it simply appends.
+func (it *Item) AppendTask(task *Item) {
+	task.Parent = it
+	pos := len(it.Children)
+	for i, c := range it.Children {
+		if c.Kind == Category {
+			pos = i
+			break
+		}
+	}
+	it.Children = append(it.Children, nil)
+	copy(it.Children[pos+1:], it.Children[pos:])
+	it.Children[pos] = task
+}
+
+// AppendRoot appends it as the last top-level item of the document.
+func (d *Document) AppendRoot(it *Item) {
+	it.Parent = nil
+	d.Roots = append(d.Roots, it)
+}
+
+// siblings returns the slice that holds it among its peers (its parent's
+// Children, or the document roots for a top-level item) together with it's
+// index in that slice. found is false if it is not present (defensive).
+func (d *Document) siblings(it *Item) (list []*Item, idx int, found bool) {
+	if it.Parent != nil {
+		list = it.Parent.Children
+	} else {
+		list = d.Roots
+	}
+	for i, s := range list {
+		if s == it {
+			return list, i, true
+		}
+	}
+	return list, -1, false
+}
+
+// InsertAfter inserts sib immediately after ref among ref's peers, giving sib
+// the same parent as ref. It is a no-op (returning false) if ref is not found.
+func (d *Document) InsertAfter(ref, sib *Item) bool {
+	list, idx, ok := d.siblings(ref)
+	if !ok {
+		return false
+	}
+	sib.Parent = ref.Parent
+	list = append(list, nil)
+	copy(list[idx+2:], list[idx+1:])
+	list[idx+1] = sib
+	if ref.Parent != nil {
+		ref.Parent.Children = list
+	} else {
+		d.Roots = list
+	}
+	return true
+}
+
+// Remove detaches it from the tree. It is a no-op (returning false) if it is
+// not found among its peers.
+func (d *Document) Remove(it *Item) bool {
+	list, idx, ok := d.siblings(it)
+	if !ok {
+		return false
+	}
+	list = append(list[:idx], list[idx+1:]...)
+	if it.Parent != nil {
+		it.Parent.Children = list
+	} else {
+		d.Roots = list
+	}
+	return true
+}
+
+// Descendants returns every item nested under it, depth-first, excluding it.
+// For a task these are its sub-tasks (recursively); the cascade and snapshot
+// helpers below build on it.
+func (it *Item) Descendants() []*Item {
+	var out []*Item
+	var walk func(n *Item)
+	walk = func(n *Item) {
+		for _, c := range n.Children {
+			out = append(out, c)
+			walk(c)
+		}
+	}
+	walk(it)
+	return out
+}
+
+// TaskCounts returns how many descendant tasks of it are done and how many
+// there are in total (it itself is not counted).
+func (it *Item) TaskCounts() (done, total int) {
+	for _, c := range it.Descendants() {
+		if c.Kind == Task {
+			total++
+			if c.Done {
+				done++
+			}
+		}
+	}
+	return done, total
+}
+
+// DoneStates records the Done flag of a set of tasks, so a cascade-complete can
+// be reverted to the exact prior state. It is the in-memory snapshot behind the
+// "I marked the parent done by accident" undo.
+type DoneStates map[*Item]bool
+
+// SnapshotDone captures the Done state of it and all its descendant tasks.
+func SnapshotDone(it *Item) DoneStates {
+	s := DoneStates{it: it.Done}
+	for _, d := range it.Descendants() {
+		s[d] = d.Done
+	}
+	return s
+}
+
+// RestoreDone re-applies a snapshot's recorded Done states.
+func RestoreDone(s DoneStates) {
+	for it, done := range s {
+		it.Done = done
+	}
+}
+
+// CascadeSetDone sets Done on it and every descendant task — the behaviour
+// where completing a parent completes all its children.
+func CascadeSetDone(it *Item, done bool) {
+	it.Done = done
+	for _, d := range it.Descendants() {
+		d.Done = done
+	}
+}
