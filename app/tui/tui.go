@@ -59,8 +59,15 @@ type model struct {
 	// the app's own save (ignore).
 	lastContent string
 
-	mode     mode
-	form     form
+	mode mode
+	form form
+
+	// searching is true while the "/" search bar is focused and capturing keys.
+	// The query itself lives in search; the resulting filter lives on the tree
+	// (m.tree.filter), so it stays applied for navigation after search closes.
+	searching bool
+	search    textinput.Model
+
 	target   formTarget
 	editing  *todo.Item // the item being edited, for targetEdit
 	deleting *todo.Item // the item the confirm dialog is guarding, for modeConfirm
@@ -129,6 +136,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeForm {
 			m.form.setWidth(msg.Width)
 		}
+		if m.searching {
+			m.search.Width = m.searchWidth()
+		}
 		return m, nil
 	case reloadTickMsg:
 		// Probe the file and re-arm the next tick; the probe runs off-goroutine.
@@ -139,6 +149,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+		// The search bar (opened with "/" from the main view) captures keys while
+		// it is focused, ahead of the main-view bindings.
+		if m.searching {
+			return m.updateSearch(msg)
+		}
 		switch m.mode {
 		case modeForm:
 			return m.updateForm(msg)
@@ -148,10 +163,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateMain(msg)
 		}
 	}
-	// Non-key messages (cursor blink, etc.) drive the form's inputs.
+	// Non-key messages (cursor blink, etc.) drive the focused text input.
 	if m.mode == modeForm {
 		var cmd tea.Cmd
 		m.form, cmd = m.form.update(msg)
+		return m, cmd
+	}
+	if m.searching {
+		var cmd tea.Cmd
+		m.search, cmd = m.search.Update(msg)
 		return m, cmd
 	}
 	return m, nil
@@ -159,12 +179,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.status = ""
-	// On the "+ new category" placeholder row the only meaningful action is
-	// adding a top-level category; the item-scoped keys are no-ops there.
-	onPH := m.tree.onPlaceholder()
 	switch msg.String() {
-	case "q", "esc":
+	case "q":
 		return m, tea.Quit
+	case "esc":
+		return m.escOrQuit()
+	case "/":
+		return m.openSearch()
 	case "up", "w", "k":
 		m.tree.moveUp()
 	case "down", "s", "j":
@@ -173,6 +194,28 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.tree.collapse()
 	case "right", "l":
 		m.tree.expand()
+	default:
+		return m.updateMainItemKey(msg)
+	}
+	return m, nil
+}
+
+// escOrQuit clears an active filter (dismissing the search the same way it's
+// cancelled), or quits when there is nothing to dismiss.
+func (m model) escOrQuit() (tea.Model, tea.Cmd) {
+	if m.tree.filter != "" {
+		m.clearFilter()
+		return m, nil
+	}
+	return m, tea.Quit
+}
+
+// updateMainItemKey handles the item-scoped main-view keys (add/edit/delete/
+// toggle/fold). On the "+ new category" placeholder row the only meaningful
+// action is adding a top-level category; the other item-scoped keys are no-ops.
+func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	onPH := m.tree.onPlaceholder()
+	switch msg.String() {
 	case "enter":
 		if onPH {
 			return m.openForm(targetAddCategory)
@@ -204,6 +247,63 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openClearDone()
 	}
 	return m, nil
+}
+
+// openSearch focuses the "/" search bar. It seeds the input with the current
+// filter so pressing "/" again refines the existing query instead of starting
+// over; the filtered view stays put while typing.
+func (m model) openSearch() (tea.Model, tea.Cmd) {
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.CharLimit = 100
+	ti.Width = m.searchWidth()
+	ti.SetValue(m.tree.filter)
+	ti.CursorEnd()
+	m.search = ti
+	m.searching = true
+	return m, tea.Batch(m.search.Focus(), textinput.Blink)
+}
+
+// updateSearch handles keys while the search bar is focused: esc cancels (and
+// clears the filter), enter confirms (keeps the filter, returns to navigation),
+// up/down move the selection through the results, and everything else edits the
+// query and re-filters live.
+func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.clearFilter()
+		return m, nil
+	case "enter":
+		m.searching = false
+		m.search.Blur()
+		return m, nil
+	case "up":
+		m.tree.moveUp()
+		return m, nil
+	case "down":
+		m.tree.moveDown()
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.search, cmd = m.search.Update(msg)
+	m.tree.setFilter(m.search.Value())
+	return m, cmd
+}
+
+// clearFilter closes the search bar and drops the active filter, restoring the
+// full tree (and its collapse state).
+func (m *model) clearFilter() {
+	m.searching = false
+	m.tree.setFilter("")
+}
+
+// searchWidth sizes the search input to the footer width.
+func (m model) searchWidth() int {
+	w := m.width - 6
+	if w < 10 {
+		w = 10
+	}
+	return w
 }
 
 // openDelete opens the confirm dialog for the selected item (focused on the
@@ -523,13 +623,21 @@ func (m model) header(width int) string {
 
 func (m model) footer(width int) string {
 	switch {
+	case m.searching:
+		// The live search bar replaces the footer while typing a query.
+		return ansi.Truncate(" "+helpKeyStyle.Render("/")+" "+m.search.View(), width, "")
 	case m.err != nil:
 		return ansi.Truncate(" "+errStyle.Render("save failed: "+m.err.Error()), width, "")
+	case m.tree.filter != "":
+		// A filter is applied but the bar is closed: show it, with how to edit/clear.
+		info := helpKeyStyle.Render("filter") + helpTextStyle.Render(": "+m.tree.filter+"  ") +
+			hint("/", "Edit") + "  " + hint("esc", "Clear")
+		return ansi.Truncate(" "+info, width, "")
 	case m.status != "":
 		return ansi.Truncate(" "+helpTextStyle.Render(m.status), width, "")
 	}
 	parts := []string{
-		hint("↑↓", "Move"), hint("←→", "Fold"), hint("space", "Done"),
+		hint("↑↓", "Move"), hint("←→", "Fold"), hint("space", "Done"), hint("/", "Search"),
 		hint("n", "New"), hint("c", "Cat"), hint("e", "Edit"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
@@ -548,7 +656,7 @@ func (m model) detailsView(width, height int) string {
 	var b strings.Builder
 	if it.Kind == todo.Category {
 		done, total := it.TaskCounts()
-		b.WriteString(" " + categoryStyle.Render(it.Title))
+		b.WriteString(" " + highlight(it.Title, m.tree.filter, categoryStyle))
 		b.WriteString("\n\n " + labelStyle.Render("Category"))
 		_, _ = fmt.Fprintf(&b, "\n %d of %d tasks done", done, total)
 		return b.String()
@@ -559,17 +667,30 @@ func (m model) detailsView(width, height int) string {
 		status = doneStyle.Render("● done")
 	}
 	b.WriteString(" " + status)
-	b.WriteString("\n\n " + categoryStyle.Render(it.Title))
+	b.WriteString("\n\n " + highlight(it.Title, m.tree.filter, categoryStyle))
 	if done, total := it.TaskCounts(); total > 0 {
 		b.WriteString("\n " + labelStyle.Render("Subtasks") + fmt.Sprintf(" %d/%d done", done, total))
 	}
 	b.WriteString("\n\n")
 	if it.Description != "" {
-		b.WriteString(wrapText(it.Description, width-1))
+		b.WriteString(highlightLines(wrapText(it.Description, width-1), m.tree.filter))
 	} else {
 		b.WriteString(" " + helpTextStyle.Render("No description. Press e to add one."))
 	}
 	return b.String()
+}
+
+// highlightLines applies highlight to each line of a pre-wrapped block, so a
+// search hit in the details pane is marked without disturbing the wrapping.
+func highlightLines(block, query string) string {
+	if query == "" {
+		return block
+	}
+	lines := strings.Split(block, "\n")
+	for i, l := range lines {
+		lines[i] = highlight(l, query, plainStyle)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // wrapText word-wraps s to width and gives every line a one-column left margin.

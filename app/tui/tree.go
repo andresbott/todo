@@ -27,6 +27,10 @@ type tree struct {
 	cursor      int
 	rows        []treeRow
 	placeholder *todo.Item // UI-only sentinel backing the "+ new category" row
+	// filter is the active search query. When set, rebuild shows only the items
+	// on a path to a match (see todo.VisibleItems), ignores the collapse state so
+	// matches inside collapsed parents surface, and drops the placeholder row.
+	filter string
 }
 
 func newTree(doc *todo.Document) tree {
@@ -36,27 +40,49 @@ func newTree(doc *todo.Document) tree {
 }
 
 // rebuild recomputes the visible rows from the document and collapse state,
-// clamping the cursor into range. It always ends with the root-level
-// placeholder row. Call it after any structural change.
+// clamping the cursor into range. Unfiltered it ends with the root-level
+// placeholder row; while a filter is active it shows only the matching paths
+// (collapse state ignored) and omits the placeholder. Call it after any
+// structural change.
 func (t *tree) rebuild() {
 	t.rows = t.rows[:0]
+	var visible map[*todo.Item]bool
+	if t.filter != "" {
+		visible = t.doc.VisibleItems(t.filter)
+	}
+	filtering := visible != nil
 	var walk func(items []*todo.Item, depth int)
 	walk = func(items []*todo.Item, depth int) {
 		for _, it := range items {
+			if filtering && !visible[it] {
+				continue
+			}
 			t.rows = append(t.rows, treeRow{item: it, depth: depth})
-			if len(it.Children) > 0 && !t.collapsed[it] {
+			// While filtering, descend regardless of collapse so a match inside a
+			// collapsed parent is still shown.
+			if len(it.Children) > 0 && (filtering || !t.collapsed[it]) {
 				walk(it.Children, depth+1)
 			}
 		}
 	}
 	walk(t.doc.Roots, 0)
-	t.rows = append(t.rows, treeRow{item: t.placeholder, depth: 0, placeholder: true})
+	if !filtering {
+		t.rows = append(t.rows, treeRow{item: t.placeholder, depth: 0, placeholder: true})
+	}
 	if t.cursor >= len(t.rows) {
 		t.cursor = len(t.rows) - 1
 	}
 	if t.cursor < 0 {
 		t.cursor = 0
 	}
+}
+
+// setFilter applies a search query (empty clears it) and rebuilds, resetting the
+// cursor to the first row so results start at the top.
+func (t *tree) setFilter(q string) {
+	t.filter = q
+	t.cursor = 0
+	t.rebuild()
 }
 
 // selected returns the item under the cursor. On the placeholder row it returns
@@ -175,7 +201,8 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	fold := "  "
 	if len(r.item.Children) > 0 {
 		fold = "▾ "
-		if t.collapsed[r.item] {
+		// A filtered view expands everything, so never show a collapsed caret.
+		if t.collapsed[r.item] && t.filter == "" {
 			fold = "▸ "
 		}
 	}
@@ -187,9 +214,11 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 			counts = fmt.Sprintf(" (%d/%d)", done, total)
 		}
 		if selected {
-			return selectedRowStyle.Render("❯ " + indent + fold + title + counts)
+			return selectedRowStyle.Render("❯ "+indent+fold) +
+				highlight(title, t.filter, selectedRowStyle) + selectedRowStyle.Render(counts)
 		}
-		return "  " + indent + helpTextStyle.Render(fold) + categoryStyle.Render(title) + helpTextStyle.Render(counts)
+		return "  " + indent + helpTextStyle.Render(fold) +
+			highlight(title, t.filter, categoryStyle) + helpTextStyle.Render(counts)
 	}
 
 	// Task.
@@ -198,10 +227,10 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 		box = "☑"
 	}
 	if selected {
-		return selectedRowStyle.Render("❯ " + indent + fold + box + " " + r.item.Title)
+		return selectedRowStyle.Render("❯ "+indent+fold+box+" ") + highlight(r.item.Title, t.filter, selectedRowStyle)
 	}
 	if r.item.Done {
-		return "  " + indent + helpTextStyle.Render(fold) + doneStyle.Render(box) + " " + doneTitleStyle.Render(r.item.Title)
+		return "  " + indent + helpTextStyle.Render(fold) + doneStyle.Render(box) + " " + highlight(r.item.Title, t.filter, doneTitleStyle)
 	}
-	return "  " + indent + helpTextStyle.Render(fold) + box + " " + r.item.Title
+	return "  " + indent + helpTextStyle.Render(fold) + box + " " + highlight(r.item.Title, t.filter, plainStyle)
 }
