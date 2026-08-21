@@ -31,6 +31,18 @@ func Load(path string) (*Document, error) {
 	return Parse(string(b)), nil
 }
 
+// EnsureFile bootstraps path as a fresh, empty TODO file (the managed guide
+// block and no tasks) when it does not already exist, so running todo creates
+// the file up front rather than only writing it on the first edit.
+func EnsureFile(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil // already exists — leave it (and any tasks in it) untouched
+	} else if !os.IsNotExist(err) {
+		return err // stat failed for another reason (e.g. permissions)
+	}
+	return (&Document{}).Save(path)
+}
+
 // Save writes the document back to path in canonical markdown form, led by the
 // app-managed guide block (see FileContent). It writes to a temporary file in
 // the same directory and renames it over the target: the rename is atomic, so a

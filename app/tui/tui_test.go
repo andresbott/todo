@@ -338,6 +338,94 @@ func TestDeleteNoOpWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestClearDoneConfirmed(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [x] a\n- [ ] b\n- [x] c\n")
+	m = press(m, "D")
+	if m.mode != modeConfirm {
+		t.Fatal("D should open the confirm dialog")
+	}
+	m = press(m, "y")
+	if m.mode != modeMain {
+		t.Fatal("confirming should return to the main view")
+	}
+	if find(m.doc, "a") != nil || find(m.doc, "c") != nil {
+		t.Errorf("completed tasks a and c should be gone")
+	}
+	if find(m.doc, "b") == nil {
+		t.Errorf("open task b should remain")
+	}
+	on := readFile(t, path)
+	if strings.Contains(on, "- [x] a") || strings.Contains(on, "- [x] c") {
+		t.Errorf("cleared tasks should not be in the file:\n%s", on)
+	}
+	if !strings.Contains(on, "- [ ] b") {
+		t.Errorf("open task should be persisted:\n%s", on)
+	}
+	_ = m.View() // the post-clear view must render without panicking
+}
+
+func TestClearDoneDefaultsToCancel(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [x] a\n- [x] c\n- [ ] b\n")
+	m = press(m, "D")
+	if m.confirmOnDelete {
+		t.Errorf("focus should default to Cancel")
+	}
+	if out := m.View(); !strings.Contains(out, "Remove 2 completed task") {
+		t.Errorf("confirm should show how many tasks will be removed:\n%s", out)
+	}
+	m = press(m, "enter") // enter on the default (Cancel)
+	if m.mode != modeMain {
+		t.Errorf("enter on Cancel should close the dialog")
+	}
+	if find(m.doc, "a") == nil {
+		t.Errorf("completed task should survive a cancelled clear")
+	}
+}
+
+func TestClearDoneCancelledByEsc(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [x] a\n- [ ] b\n")
+	m = press(m, "D", "esc")
+	if m.mode != modeMain {
+		t.Errorf("esc should close the dialog")
+	}
+	if find(m.doc, "a") == nil {
+		t.Errorf("completed task should survive esc")
+	}
+}
+
+func TestClearDoneNoOpWhenNothingDone(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	m = press(m, "D")
+	if m.mode == modeConfirm {
+		t.Errorf("D with no completed tasks should not open a confirm")
+	}
+	if m.status == "" {
+		t.Errorf("expected a status message explaining there is nothing to remove")
+	}
+}
+
+func TestDeleteAfterCancelledClear(t *testing.T) {
+	// A cancelled clear must reset the confirm action, otherwise the next single
+	// delete would wrongly clear every completed task.
+	m, _ := newTestModel(t, "# Work\n\n- [x] a\n- [x] c\n- [ ] b\n")
+	m = press(m, "D", "esc") // open the clear-done confirm, then cancel it
+	m = press(m, "down")     // select task a
+	m = press(m, "d", "y")   // delete only a
+	if find(m.doc, "a") != nil {
+		t.Errorf("task a should be deleted")
+	}
+	if find(m.doc, "c") == nil {
+		t.Errorf("c must survive — a single delete must not clear all completed tasks")
+	}
+}
+
+func TestFooterShowsClearDoneHint(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [x] a\n")
+	if got := m.footer(120); !strings.Contains(got, "Clear") {
+		t.Errorf("footer should advertise the clear-done shortcut:\n%s", got)
+	}
+}
+
 func TestHeaderShowsVersion(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n")
 	if !strings.Contains(m.header(80), metainfo.Version) {

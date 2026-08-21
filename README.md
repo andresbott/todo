@@ -94,6 +94,7 @@ An example task file:
 | `c` | Add a category (a subcategory when a category is selected) |
 | `e` | Edit the selected item's title (and a task's description) |
 | `d` | Delete the selected item (and its subtree) — asks to confirm |
+| `D` | Remove every completed task (keeping any with unfinished sub-tasks) — asks to confirm |
 | `q` / `esc` | Quit |
 
 Tasks always live under a category — there are no root-level tasks. The tree

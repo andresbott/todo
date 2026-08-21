@@ -190,3 +190,59 @@ func CascadeSetDone(it *Item, done bool) {
 		d.Done = done
 	}
 }
+
+// fullyDone reports whether it is a task that is done and whose every nested
+// task is also done. Only such a subtree is safe to prune wholesale: a done
+// task that still holds an unfinished sub-task is *not* fully done, so removing
+// it would discard work the user hasn't finished.
+func fullyDone(it *Item) bool {
+	if !it.IsTask() || !it.Done {
+		return false
+	}
+	done, total := it.TaskCounts()
+	return done == total
+}
+
+// RemovableDone reports how many tasks RemoveDone would delete — every task
+// whose whole subtree is done. It does not modify the document, so callers can
+// size a confirmation prompt before committing to the removal.
+func (d *Document) RemovableDone() int {
+	n := 0
+	var walk func(items []*Item)
+	walk = func(items []*Item) {
+		for _, it := range items {
+			if fullyDone(it) {
+				n++
+			}
+			walk(it.Children)
+		}
+	}
+	walk(d.Roots)
+	return n
+}
+
+// RemoveDone deletes every completed task from the document and returns how many
+// tasks were removed. A done task is dropped together with its subtree, but only
+// when that whole subtree is done: a done task that still holds an unfinished
+// sub-task is kept (the prune recurses into it, so done tasks nested deeper are
+// still removed). This mirrors single-item delete, which also removes a subtree,
+// while never discarding unfinished work.
+func (d *Document) RemoveDone() int {
+	removed := 0
+	var prune func(items []*Item) []*Item
+	prune = func(items []*Item) []*Item {
+		kept := items[:0]
+		for _, it := range items {
+			if fullyDone(it) {
+				_, total := it.TaskCounts()
+				removed += 1 + total // this task plus its (all-done) sub-tasks
+				continue             // drop the whole subtree
+			}
+			it.Children = prune(it.Children)
+			kept = append(kept, it)
+		}
+		return kept
+	}
+	d.Roots = prune(d.Roots)
+	return removed
+}

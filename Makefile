@@ -36,6 +36,9 @@ coverage: ## check test coverage meets the threshold (app and internal; metainfo
 	done; \
 	exit $$fail
 
+.PHONY: verify
+verify: test vet lint license-check coverage ## run the full verification suite
+
 #==========================================================================================
 ##@ Running
 #==========================================================================================
