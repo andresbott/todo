@@ -9,6 +9,8 @@ Built with the [Charm](https://charm.sh) stack: [Bubble Tea](https://github.com/
 [Bubbles](https://github.com/charmbracelet/bubbles), and [Lipgloss](https://github.com/charmbracelet/lipgloss),
 with [Cobra](https://github.com/spf13/cobra) for the CLI.
 
+![todo — a keyboard-driven TODO manager for the terminal](zarf/screenshot.jpg)
+
 ## Install
 
 todo is a single, dependency-free binary (pure Go, no CGO). Prebuilt archives, a
