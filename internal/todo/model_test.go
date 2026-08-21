@@ -163,6 +163,68 @@ func TestRemove(t *testing.T) {
 	}
 }
 
+func TestRemoveDone(t *testing.T) {
+	d := &todo.Document{}
+	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "Cat"}
+	d.AppendRoot(cat)
+	cat.AppendChild(todo.NewTask("a", "", true))  // done
+	cat.AppendChild(todo.NewTask("b", "", false)) // open
+	cat.AppendChild(todo.NewTask("c", "", true))  // done
+
+	if n := d.RemoveDone(); n != 2 {
+		t.Fatalf("RemoveDone removed %d, want 2", n)
+	}
+	if got := titles(cat.Children); len(got) != 1 || got[0] != "b" {
+		t.Errorf("only the open task should remain, got %v", got)
+	}
+}
+
+func TestRemoveDoneKeepsUnfinishedSubtree(t *testing.T) {
+	d := &todo.Document{}
+	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "Cat"}
+	d.AppendRoot(cat)
+
+	// p1 is done and its whole subtree is done -> the subtree is removed.
+	p1 := todo.NewTask("p1", "", true)
+	p1.AppendChild(todo.NewTask("p1c", "", true))
+	// p2 is done but still holds an unfinished child -> it must be kept, so no
+	// unfinished work is discarded.
+	p2 := todo.NewTask("p2", "", true)
+	p2c := todo.NewTask("p2c", "", false)
+	p2.AppendChild(p2c)
+	cat.AppendChild(p1)
+	cat.AppendChild(p2)
+
+	if n := d.RemoveDone(); n != 2 {
+		t.Fatalf("RemoveDone removed %d, want 2 (only p1's subtree)", n)
+	}
+	if got := titles(cat.Children); len(got) != 1 || got[0] != "p2" {
+		t.Fatalf("cat should keep only p2, got %v", got)
+	}
+	if len(p2.Children) != 1 || p2.Children[0] != p2c {
+		t.Errorf("p2 must still hold its unfinished child p2c")
+	}
+}
+
+func TestRemovableDoneMatchesRemoved(t *testing.T) {
+	d := &todo.Document{}
+	cat := &todo.Item{Kind: todo.Category, Level: 1, Title: "Cat"}
+	d.AppendRoot(cat)
+	cat.AppendChild(todo.NewTask("x", "", true)) // done leaf
+	p := todo.NewTask("p", "", true)             // done parent, done child
+	p.AppendChild(todo.NewTask("pc", "", true))
+	cat.AppendChild(p)
+	cat.AppendChild(todo.NewTask("y", "", false)) // open
+
+	want := d.RemovableDone()
+	if want != 3 {
+		t.Fatalf("RemovableDone = %d, want 3 (x, p, pc)", want)
+	}
+	if got := d.RemoveDone(); got != want {
+		t.Errorf("RemoveDone removed %d, RemovableDone predicted %d", got, want)
+	}
+}
+
 func titles(items []*todo.Item) []string {
 	out := make([]string, len(items))
 	for i, it := range items {

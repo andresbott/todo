@@ -38,6 +38,14 @@ const (
 	targetEdit                   // rename/re-describe the selected item
 )
 
+// confirmAction records what the open confirm dialog should do when confirmed.
+type confirmAction int
+
+const (
+	confirmDelete    confirmAction = iota // delete the selected item (m.deleting)
+	confirmClearDone                      // remove every completed task
+)
+
 type model struct {
 	path    string
 	version string
@@ -59,6 +67,9 @@ type model struct {
 	// confirmOnDelete is which confirm-dialog button has focus: false = Cancel
 	// (the safe default so a stray key can't delete), true = Delete.
 	confirmOnDelete bool
+	// confirmAction is what confirming the open dialog does — delete the selected
+	// item, or clear all completed tasks.
+	confirmAction confirmAction
 
 	// snapshots holds, per cascade-completed parent task, the descendant Done
 	// states captured at completion time, so unchecking that parent can restore
@@ -83,6 +94,11 @@ func Run(path string) error {
 // snapshots). Split out from Run so tests can drive the model without starting
 // a real terminal program.
 func newModel(path string) (model, error) {
+	// Bootstrap the file when it is missing, so launching todo (with no argument,
+	// or a new filename) starts from a real file on disk.
+	if err := todo.EnsureFile(path); err != nil {
+		return model{}, err
+	}
 	doc, err := todo.Load(path)
 	if err != nil {
 		return model{}, err
@@ -184,6 +200,8 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.openDelete()
+	case "D":
+		return m.openClearDone()
 	}
 	return m, nil
 }
@@ -197,16 +215,32 @@ func (m model) openDelete() (tea.Model, tea.Cmd) {
 	}
 	m.deleting = sel
 	m.confirmOnDelete = false
+	m.confirmAction = confirmDelete
 	m.mode = modeConfirm
 	return m, nil
 }
 
-// updateConfirm handles the delete confirmation: y/enter-on-Delete confirms,
-// n/esc cancels, tab/arrows toggle the focused button.
+// openClearDone opens the confirm dialog for removing every completed task
+// (focused on the safe Cancel button). A no-op with a status hint when there is
+// nothing to remove.
+func (m model) openClearDone() (tea.Model, tea.Cmd) {
+	if m.doc.RemovableDone() == 0 {
+		m.status = "No completed tasks to remove."
+		return m, nil
+	}
+	m.deleting = nil
+	m.confirmOnDelete = false
+	m.confirmAction = confirmClearDone
+	m.mode = modeConfirm
+	return m, nil
+}
+
+// updateConfirm handles the confirm dialog: y/enter-on-Delete confirms, n/esc
+// cancels, tab/arrows toggle the focused button.
 func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
-		return m.doDelete()
+		return m.doConfirm()
 	case "n", "N", "esc":
 		m.mode = modeMain
 		return m, nil
@@ -215,11 +249,40 @@ func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter", " ":
 		if m.confirmOnDelete {
-			return m.doDelete()
+			return m.doConfirm()
 		}
 		m.mode = modeMain
 		return m, nil
 	}
+	return m, nil
+}
+
+// doConfirm runs the confirmed action for the open dialog.
+func (m model) doConfirm() (tea.Model, tea.Cmd) {
+	if m.confirmAction == confirmClearDone {
+		return m.doClearDone()
+	}
+	return m.doDelete()
+}
+
+// doClearDone removes every completed task, persists, and keeps the selection on
+// the previously selected item when it survived (otherwise the top row). Like a
+// delete, it ends the accidental-complete undo window.
+func (m model) doClearDone() (tea.Model, tea.Cmd) {
+	m.mode = modeMain
+	sel := m.tree.selected()
+	n := m.doc.RemoveDone()
+	if n == 0 {
+		return m, nil
+	}
+	m.snapshots = map[*todo.Item]todo.DoneStates{}
+	m.save()
+	m.tree.rebuild()
+	m.tree.cursor = 0
+	if sel != nil {
+		m.tree.selectItem(sel) // no-op if sel was removed → stays on the top row
+	}
+	m.status = fmt.Sprintf("Removed %d completed task(s).", n)
 	return m, nil
 }
 
@@ -406,12 +469,20 @@ func (m *model) save() {
 	m.lastContent = m.doc.FileContent()
 }
 
+// confirmQuestion phrases the prompt for the open confirm dialog.
+func (m model) confirmQuestion() string {
+	if m.confirmAction == confirmClearDone {
+		return fmt.Sprintf("Remove %d completed task(s)?", m.doc.RemovableDone())
+	}
+	return deletionQuestion(m.deleting)
+}
+
 func (m model) View() string {
 	switch m.mode {
 	case modeForm:
 		return placeCenter(m.mainView(true), m.form.view())
 	case modeConfirm:
-		return placeCenter(m.mainView(true), confirmModal(deletionQuestion(m.deleting), m.confirmOnDelete, m.width))
+		return placeCenter(m.mainView(true), confirmModal(m.confirmQuestion(), m.confirmOnDelete, m.width))
 	default:
 		return m.mainView(false)
 	}
@@ -429,13 +500,7 @@ func (m model) mainView(dim bool) string {
 	if bodyH < 3 {
 		bodyH = 3
 	}
-	leftW := w / 3
-	if leftW < 20 {
-		leftW = 20
-	}
-	if leftW > 48 {
-		leftW = 48
-	}
+	leftW := w * 2 / 5
 	rightW := w - leftW
 
 	left := titledBox("Tasks", m.tree.view(leftW-2, bodyH-2), leftW, bodyH, !dim)
@@ -465,7 +530,7 @@ func (m model) footer(width int) string {
 	}
 	parts := []string{
 		hint("↑↓", "Move"), hint("←→", "Fold"), hint("space", "Done"),
-		hint("n", "New"), hint("c", "Cat"), hint("e", "Edit"), hint("d", "Del"), hint("q", "Quit"),
+		hint("n", "New"), hint("c", "Cat"), hint("e", "Edit"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }

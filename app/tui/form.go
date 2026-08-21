@@ -88,8 +88,8 @@ func (f *form) applyFocus() tea.Cmd {
 
 func (f form) modalWidth() int {
 	w := f.width - 8
-	if w > 72 {
-		w = 72
+	if w > 88 {
+		w = 88
 	}
 	if w < 30 {
 		w = 30
@@ -105,7 +105,7 @@ func (f *form) setWidth(w int) {
 	iw := f.contentWidth()
 	f.title.Width = iw - 1
 	f.desc.SetWidth(iw - 2) // the description box's own border adds 2
-	f.desc.SetHeight(6)
+	f.desc.SetHeight(9)
 }
 
 // update feeds a message to the focused text input (typing, cursor motion).
