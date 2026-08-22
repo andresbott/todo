@@ -97,6 +97,7 @@ An example task file:
 | `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
 | `c` | Add a category (a subcategory when a category is selected) |
 | `e` | Edit the selected item's title (and a task's description) |
+| `y` | Copy the selected item to the clipboard — a task's title and full (multi-line) description as plain text |
 | `d` | Delete the selected item (and its subtree) — asks to confirm |
 | `D` | Remove every completed task (keeping any with unfinished sub-tasks) — asks to confirm |
 | `/` | Search / filter the list (see below) |
