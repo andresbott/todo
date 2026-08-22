@@ -39,8 +39,11 @@ const (
 	// targetAddChild adds a task nested under the selection: a subtask of a
 	// selected task, or a task inside a selected category.
 	targetAddChild
-	targetAddCategory // a category (a subcategory when a category is selected)
-	targetEdit        // rename/re-describe the selected item
+	// targetAddCategory adds a category: a top-level one on the root
+	// placeholder, or a subcategory of the enclosing category when a category
+	// (or a task inside one) is selected.
+	targetAddCategory
+	targetEdit // rename/re-describe the selected item
 )
 
 // confirmAction records what the open confirm dialog should do when confirmed.
@@ -183,6 +186,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// While an item is grabbed, the arrows drive the move instead of navigation.
+	if m.tree.grabbed {
+		return m.updateMove(msg)
+	}
 	m.status = ""
 	switch msg.String() {
 	case "q":
@@ -247,6 +254,8 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openForm(targetAddChild)
 	case "c":
 		return m.openForm(targetAddCategory)
+	case "m":
+		return m.startMove()
 	case "e":
 		if onPH {
 			return m, nil
@@ -260,6 +269,59 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "D":
 		return m.openClearDone()
 	}
+	return m, nil
+}
+
+// startMove picks up the selected item for moving. It is a no-op on the
+// placeholder row, and refuses while a filter is active — the filtered view hides
+// siblings and ignores folding, so reordering against it would be misleading.
+func (m model) startMove() (tea.Model, tea.Cmd) {
+	if m.tree.onPlaceholder() {
+		return m, nil
+	}
+	if m.tree.filter != "" {
+		m.status = "Clear the filter (esc) before moving items."
+		return m, nil
+	}
+	m.tree.grabbed = true
+	return m, nil
+}
+
+// updateMove handles keys while an item is grabbed: the arrows reorder it (↑/↓)
+// or re-nest it (←/→), and m/esc/enter drop it. A move the document refuses (a
+// clamp at the ends, or an illegal re-nest) leaves the item grabbed so the user
+// can pick another direction.
+func (m model) updateMove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.status = ""
+	switch msg.String() {
+	case "up", "w", "k":
+		return m.applyMove(m.doc.MoveUp)
+	case "down", "s", "j":
+		return m.applyMove(m.doc.MoveDown)
+	case "left", "h":
+		return m.applyMove(m.doc.Outdent)
+	case "right", "l":
+		return m.applyMove(m.doc.Indent)
+	case "m", "esc", "enter":
+		m.tree.grabbed = false
+	}
+	return m, nil
+}
+
+// applyMove runs one move op on the grabbed item. On success it persists,
+// rebuilds, keeps the cursor on the moved item and expands its (possibly new)
+// parent so it stays visible; the structural change also ends the accidental-
+// complete undo window. A no-op result changes nothing and keeps the item grabbed.
+func (m model) applyMove(op func(*todo.Item) bool) (tea.Model, tea.Cmd) {
+	it := m.tree.selected()
+	if it == nil || m.tree.onPlaceholder() || !op(it) {
+		return m, nil
+	}
+	m.snapshots = map[*todo.Item]todo.DoneStates{}
+	delete(m.tree.collapsed, it.Parent) // reveal the item under its (possibly new) parent
+	m.save()
+	m.tree.rebuild()
+	m.tree.selectItem(it)
 	return m, nil
 }
 
@@ -548,14 +610,18 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		focus = m.editing
 	case targetAddCategory:
 		cat := &todo.Item{Kind: todo.Category, Title: title, Level: 1}
-		// A category selected → subcategory; the root placeholder (or a task
-		// selected) → a new top-level category.
-		if !m.tree.onPlaceholder() && sel != nil && sel.Kind == todo.Category {
-			if cat.Level = sel.Level + 1; cat.Level > 6 {
+		// A category — or a task inside one — selected → subcategory of the
+		// enclosing category; the root placeholder → a new top-level category.
+		var parentCat *todo.Item
+		if !m.tree.onPlaceholder() && sel != nil {
+			parentCat = sel.EnclosingCategory()
+		}
+		if parentCat != nil {
+			if cat.Level = parentCat.Level + 1; cat.Level > 6 {
 				cat.Level = 6
 			}
-			sel.AppendChild(cat)
-			delete(m.tree.collapsed, sel)
+			parentCat.AppendChild(cat)
+			delete(m.tree.collapsed, parentCat)
 		} else {
 			m.doc.AppendRoot(cat)
 		}
@@ -657,6 +723,13 @@ func (m model) footer(width int) string {
 		return ansi.Truncate(" "+helpKeyStyle.Render("/")+" "+m.search.View(), width, "")
 	case m.err != nil:
 		return ansi.Truncate(" "+errStyle.Render("save failed: "+m.err.Error()), width, "")
+	case m.tree.grabbed:
+		// Move mode: the arrows reorder/re-nest the grabbed item.
+		parts := []string{
+			helpKeyStyle.Render("MOVING"),
+			hint("↑↓", "Move"), hint("→", "Child"), hint("←", "Sibling"), hint("m/esc", "Drop"),
+		}
+		return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 	case m.tree.filter != "":
 		// A filter is applied but the bar is closed: show it, with how to edit/clear.
 		info := helpKeyStyle.Render("filter") + helpTextStyle.Render(": "+m.tree.filter+"  ") +
@@ -667,7 +740,7 @@ func (m model) footer(width int) string {
 	}
 	parts := []string{
 		hint("↑↓", "Move"), hint("←→", "Fold"), hint("space", "Done"), hint("/", "Search"),
-		hint("n/N", "New/Child"), hint("c", "Cat"), hint("e", "Edit"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
+		hint("n/N", "New/Child"), hint("c", "Cat"), hint("m", "Move"), hint("e", "Edit"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }

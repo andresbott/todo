@@ -60,7 +60,10 @@ func (m model) handleReload(msg fileReloadedMsg) (tea.Model, tea.Cmd) {
 	if msg.content == m.lastContent {
 		return m, nil
 	}
-	if m.mode != modeMain {
+	// Defer while a modal is open or an item is grabbed for moving, so an edit is
+	// never yanked out from under the user; the next tick re-detects it once they
+	// return to plain navigation.
+	if m.mode != modeMain || m.tree.grabbed {
 		return m, nil
 	}
 	m.applyReload(msg)

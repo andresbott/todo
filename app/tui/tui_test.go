@@ -253,6 +253,41 @@ func TestAddSubcategory(t *testing.T) {
 	}
 }
 
+func TestAddSubcategoryFromTask(t *testing.T) {
+	// Pressing 'c' while a task inside a category is selected must add the new
+	// category *inside* that category (a subcategory), not as a sibling of it.
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = press(m, "down") // task a, inside Work
+	if !m.tree.selected().IsTask() {
+		t.Fatal("expected a task to be selected")
+	}
+	m = press(m, "c")
+	m = typeText(m, "Backend")
+	m = press(m, "enter")
+	be := find(m.doc, "Backend")
+	if be == nil || be.Level != 2 || be.Parent == nil || be.Parent.Title != "Work" {
+		t.Fatalf("Backend should be an H2 subcategory under Work, got %+v", be)
+	}
+	if len(m.doc.Roots) != 1 {
+		t.Errorf("Backend must not become a second root category, got %d roots", len(m.doc.Roots))
+	}
+}
+
+func TestAddSubcategoryFromSubtask(t *testing.T) {
+	// From a nested subtask, 'c' still adds the category under the enclosing
+	// top-level category (the nearest category ancestor), not under the task.
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n  - [ ] sub\n")
+	m = press(m, "down") // task a
+	m = press(m, "down") // subtask sub
+	m = press(m, "c")
+	m = typeText(m, "Backend")
+	m = press(m, "enter")
+	be := find(m.doc, "Backend")
+	if be == nil || be.Parent == nil || be.Parent.Title != "Work" {
+		t.Fatalf("Backend should be a subcategory under Work, got %+v", be)
+	}
+}
+
 func TestEditTaskTitleAndDescription(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	m = press(m, "down") // task a

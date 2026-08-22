@@ -42,6 +42,19 @@ type Document struct {
 // IsTask reports whether the item is a task (rather than a category).
 func (it *Item) IsTask() bool { return it.Kind == Task }
 
+// EnclosingCategory returns the nearest category at or above it: it itself when
+// it is a category, otherwise its closest category ancestor. It returns nil
+// only for a task with no category ancestor, which does not occur in a parsed
+// tree (every task lives under a category).
+func (it *Item) EnclosingCategory() *Item {
+	for n := it; n != nil; n = n.Parent {
+		if n.Kind == Category {
+			return n
+		}
+	}
+	return nil
+}
+
 // NewTask builds a task item (with no children or parent set yet).
 func NewTask(title, description string, done bool) *Item {
 	return &Item{Kind: Task, Title: title, Description: description, Done: done}
