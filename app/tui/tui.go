@@ -30,12 +30,17 @@ const (
 type formTarget int
 
 const (
-	// targetAddTask adds a task under the selected item: a task in the selected
-	// category, or a subtask of the selected task. Tasks always live under a
-	// category, so this needs a selection (there are no root-level tasks).
-	targetAddTask     formTarget = iota
-	targetAddCategory            // a category (a subcategory when a category is selected)
-	targetEdit                   // rename/re-describe the selected item
+	// targetAddSibling adds a task as a sibling of the selection — at the end of
+	// the current level (after its peer tasks). On a category, where a task can't
+	// be a sibling, it falls back to adding the task inside the category (like
+	// targetAddChild). Tasks always live under a category, so this needs a
+	// selection (there are no root-level tasks).
+	targetAddSibling formTarget = iota
+	// targetAddChild adds a task nested under the selection: a subtask of a
+	// selected task, or a task inside a selected category.
+	targetAddChild
+	targetAddCategory // a category (a subcategory when a category is selected)
+	targetEdit        // rename/re-describe the selected item
 )
 
 // confirmAction records what the open confirm dialog should do when confirmed.
@@ -190,6 +195,10 @@ func (m model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.tree.moveUp()
 	case "down", "s", "j":
 		m.tree.moveDown()
+	case "pgup":
+		m.tree.pageUp()
+	case "pgdown":
+		m.tree.pageDown()
 	case "left", "h":
 		m.tree.collapse()
 	case "right", "l":
@@ -230,7 +239,12 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if onPH {
 			return m.openForm(targetAddCategory)
 		}
-		return m.openForm(targetAddTask)
+		return m.openForm(targetAddSibling)
+	case "N":
+		if onPH {
+			return m.openForm(targetAddCategory)
+		}
+		return m.openForm(targetAddChild)
 	case "c":
 		return m.openForm(targetAddCategory)
 	case "e":
@@ -266,8 +280,8 @@ func (m model) openSearch() (tea.Model, tea.Cmd) {
 
 // updateSearch handles keys while the search bar is focused: esc cancels (and
 // clears the filter), enter confirms (keeps the filter, returns to navigation),
-// up/down move the selection through the results, and everything else edits the
-// query and re-filters live.
+// up/down (and PgUp/PgDn) move the selection through the results, and everything
+// else edits the query and re-filters live.
 func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -282,6 +296,12 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "down":
 		m.tree.moveDown()
+		return m, nil
+	case "pgup":
+		m.tree.pageUp()
+		return m, nil
+	case "pgdown":
+		m.tree.pageDown()
 		return m, nil
 	}
 	var cmd tea.Cmd
@@ -450,7 +470,7 @@ func (m model) toggleDone() (tea.Model, tea.Cmd) {
 func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 	sel := m.tree.selected()
 	switch t {
-	case targetAddTask:
+	case targetAddSibling, targetAddChild:
 		if sel == nil || m.tree.onPlaceholder() {
 			m.status = "Add a category first (press c) — tasks live under a category."
 			return m, nil
@@ -540,10 +560,19 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 			m.doc.AppendRoot(cat)
 		}
 		focus = cat
-	default: // targetAddTask: a task under the selected category, or a subtask
+	case targetAddChild: // a subtask of a task, or a task inside a category
 		task := todo.NewTask(title, desc, false)
 		sel.AppendTask(task)
 		delete(m.tree.collapsed, sel)
+		focus = task
+	default: // targetAddSibling: a task at the end of the selection's level
+		task := todo.NewTask(title, desc, false)
+		parent := sel
+		if sel.IsTask() && sel.Parent != nil {
+			parent = sel.Parent // a task's siblings live under its parent
+		}
+		parent.AppendTask(task)
+		delete(m.tree.collapsed, parent)
 		focus = task
 	}
 
@@ -638,7 +667,7 @@ func (m model) footer(width int) string {
 	}
 	parts := []string{
 		hint("↑↓", "Move"), hint("←→", "Fold"), hint("space", "Done"), hint("/", "Search"),
-		hint("n", "New"), hint("c", "Cat"), hint("e", "Edit"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
+		hint("n/N", "New/Child"), hint("c", "Cat"), hint("e", "Edit"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }

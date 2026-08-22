@@ -129,7 +129,7 @@ func TestNewTaskUnderCategory(t *testing.T) {
 func TestNewOnTaskMakesSubtask(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	m = press(m, "down") // task a
-	m = press(m, "n")    // 'n' on a task adds a subtask
+	m = press(m, "N")    // 'N' on a task adds a child subtask
 	m = typeText(m, "sub")
 	m = press(m, "enter")
 	a := find(m.doc, "a")
@@ -138,6 +138,48 @@ func TestNewOnTaskMakesSubtask(t *testing.T) {
 	}
 	if !strings.Contains(readFile(t, path), "  - [ ] sub") {
 		t.Errorf("subtask indentation not persisted:\n%s", readFile(t, path))
+	}
+}
+
+func TestNewSiblingOnTask(t *testing.T) {
+	m, path := newTestModel(t, "# Work\n\n- [ ] a\n- [ ] b\n")
+	m = press(m, "down") // task a — not the last sibling
+	m = press(m, "n")    // 'n' on a task adds a sibling at the end of the level
+	if m.mode != modeForm {
+		t.Fatal("n should open the add-task form")
+	}
+	m = typeText(m, "c")
+	m = press(m, "enter")
+	c := find(m.doc, "c")
+	if c == nil || c.Parent == nil || c.Parent.Title != "Work" {
+		t.Fatalf("c should be a task directly under Work, a sibling of a")
+	}
+	// The sibling must land at the END of the level (after b), not right after a.
+	var order []string
+	for _, ch := range find(m.doc, "Work").Children {
+		order = append(order, ch.Title)
+	}
+	if got := strings.Join(order, ","); got != "a,b,c" {
+		t.Errorf("sibling order = %q, want \"a,b,c\"", got)
+	}
+	if m.tree.selected() != c {
+		t.Errorf("the new sibling should be selected")
+	}
+	if !strings.Contains(readFile(t, path), "- [ ] c") {
+		t.Errorf("new sibling not persisted")
+	}
+}
+
+func TestNewChildOnCategory(t *testing.T) {
+	// A task can't be a category's sibling, so on a category 'N' (like 'n') adds
+	// the task inside the category.
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = press(m, "N") // Work is selected
+	m = typeText(m, "b")
+	m = press(m, "enter")
+	b := find(m.doc, "b")
+	if b == nil || b.Parent == nil || b.Parent.Title != "Work" {
+		t.Fatalf("b should be a task inside Work")
 	}
 }
 

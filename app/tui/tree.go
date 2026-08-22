@@ -110,15 +110,27 @@ func (t *tree) selectItem(it *todo.Item) {
 	}
 }
 
-func (t *tree) moveUp() {
-	if t.cursor > 0 {
-		t.cursor--
-	}
-}
+// navStep is how many rows Page Up / Page Down jump per press: a fixed stride
+// that travels faster than the single-row ↑/↓, independent of the window height.
+const navStep = 10
 
-func (t *tree) moveDown() {
-	if t.cursor < len(t.rows)-1 {
-		t.cursor++
+func (t *tree) moveUp()   { t.moveBy(-1) }
+func (t *tree) moveDown() { t.moveBy(1) }
+
+// pageUp / pageDown jump navStep rows at once (clamped to the ends), for quick
+// travel through a long list.
+func (t *tree) pageUp()   { t.moveBy(-navStep) }
+func (t *tree) pageDown() { t.moveBy(navStep) }
+
+// moveBy shifts the cursor by delta rows (negative up, positive down), clamped
+// to the visible range.
+func (t *tree) moveBy(delta int) {
+	t.cursor += delta
+	if last := len(t.rows) - 1; t.cursor > last {
+		t.cursor = last
+	}
+	if t.cursor < 0 {
+		t.cursor = 0
 	}
 }
 

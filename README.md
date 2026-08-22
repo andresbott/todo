@@ -89,10 +89,12 @@ An example task file:
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` (or `w`/`s`, `k`/`j`) | Move the selection |
+| `PgUp` / `PgDn` | Move the selection by 10 rows |
 | `←` / `→` (or `h`/`l`) | Collapse / expand (Left on a leaf jumps to the parent) |
 | `enter` | Fold / unfold the selected item |
 | `space` / `x` | Toggle a task done |
-| `n` | New task — a task in the selected category, or a subtask of the selected task |
+| `n` | New task as a sibling — at the end of the current level (on a category, a task inside it) |
+| `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
 | `c` | Add a category (a subcategory when a category is selected) |
 | `e` | Edit the selected item's title (and a task's description) |
 | `d` | Delete the selected item (and its subtree) — asks to confirm |
