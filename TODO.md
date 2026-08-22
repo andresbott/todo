@@ -20,6 +20,3 @@ Notes for editors:
 -->
 
 # Main
-
-- [x] use page up and down to do bigger jumps
-  - [ ] figure out a way to copy title + description multi line

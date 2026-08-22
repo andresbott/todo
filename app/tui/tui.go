@@ -142,6 +142,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		// Tell the tree how tall its viewport is now, and re-anchor the scroll so
+		// the cursor stays on screen across a resize.
+		m.tree.viewHeight = m.treeViewHeight()
+		m.tree.reconcileOffset()
 		if m.mode == modeForm {
 			m.form.setWidth(msg.Width)
 		}
@@ -466,7 +470,7 @@ func (m model) doClearDone() (tea.Model, tea.Cmd) {
 	m.snapshots = map[*todo.Item]todo.DoneStates{}
 	m.save()
 	m.tree.rebuild()
-	m.tree.cursor = 0
+	m.tree.selectTop()
 	if sel != nil {
 		m.tree.selectItem(sel) // no-op if sel was removed → stays on the top row
 	}
@@ -496,7 +500,7 @@ func (m model) doDelete() (tea.Model, tea.Cmd) {
 	if prev != nil {
 		m.tree.selectItem(prev)
 	} else {
-		m.tree.cursor = 0
+		m.tree.selectTop()
 	}
 	return m, nil
 }
@@ -741,11 +745,32 @@ func (m model) mainView(dim bool) string {
 	leftW := w * 2 / 5
 	rightW := w - leftW
 
-	left := titledBox("Tasks", m.tree.view(leftW-2, bodyH-2), leftW, bodyH, !dim)
+	left := titledBox("Tasks", m.tree.view(leftW-2, m.treeViewHeight()), leftW, bodyH, !dim)
 	right := titledBox("Details", m.detailsView(rightW-2, bodyH-2), rightW, bodyH, false)
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 
 	return m.header(w) + "\n" + panels + "\n" + m.footer(w)
+}
+
+// treeViewHeight is how many task rows the left pane can show at the current
+// terminal size — the height handed to tree.view. WindowSizeMsg stores it on the
+// tree so its scroll math (reconcileOffset) matches what mainView renders; the
+// two must agree or the viewport clamp would fight the offset. It mirrors the
+// body-height layout math in mainView.
+func (m model) treeViewHeight() int {
+	h := m.height
+	if m.width == 0 {
+		h = 24 // matches mainView's fallback when the terminal size is unknown
+	}
+	bodyH := h - 2
+	if bodyH < 3 {
+		bodyH = 3
+	}
+	vh := bodyH - 2
+	if vh < 1 {
+		vh = 1
+	}
+	return vh
 }
 
 func (m model) header(width int) string {
