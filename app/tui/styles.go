@@ -19,6 +19,10 @@ var (
 	titleActiveStyle = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
 	titleDimStyle    = lipgloss.NewStyle().Foreground(colDim)
 	selectedRowStyle = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	// grabbedRowStyle marks the row picked up in move mode: reverse-video accent,
+	// so a grabbed item reads as lifted off the list, distinct from a plain
+	// selection.
+	grabbedRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(colAccent).Bold(true)
 	categoryStyle    = lipgloss.NewStyle().Foreground(colTitle).Bold(true)
 	doneStyle        = lipgloss.NewStyle().Foreground(colDone)
 	doneTitleStyle   = lipgloss.NewStyle().Foreground(colDim).Strikethrough(true)

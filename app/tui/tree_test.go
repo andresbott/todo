@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -81,6 +82,40 @@ func TestTreeRowRendering(t *testing.T) {
 	// A selected row is marked with the ❯ gutter.
 	if got := tr.rowString(treeRow{item: find(d, "open")}, true); !strings.Contains(got, "❯") {
 		t.Errorf("selected row should contain the ❯ gutter, got %q", got)
+	}
+}
+
+func TestTreePageJumps(t *testing.T) {
+	// One category with 30 tasks: rows are Work (0), t0..t29 (1..30), placeholder (31).
+	var b strings.Builder
+	b.WriteString("# Work\n\n")
+	for i := 0; i < 30; i++ {
+		_, _ = fmt.Fprintf(&b, "- [ ] t%d\n", i)
+	}
+	tr := newTree(todo.Parse(b.String()))
+	last := len(tr.rows) - 1
+
+	// pageDown advances a fixed navStep rows.
+	tr.cursor = 0
+	tr.pageDown()
+	if tr.cursor != navStep {
+		t.Errorf("pageDown from 0 = %d, want %d", tr.cursor, navStep)
+	}
+	// pageUp goes back the same stride.
+	tr.pageUp()
+	if tr.cursor != 0 {
+		t.Errorf("pageUp back to the top = %d, want 0", tr.cursor)
+	}
+	// pageUp clamps at the top instead of going negative.
+	tr.pageUp()
+	if tr.cursor != 0 {
+		t.Errorf("pageUp past the top should clamp to 0, got %d", tr.cursor)
+	}
+	// pageDown clamps at the last row.
+	tr.cursor = last - 2
+	tr.pageDown()
+	if tr.cursor != last {
+		t.Errorf("pageDown past the end should clamp to %d, got %d", last, tr.cursor)
 	}
 }
 

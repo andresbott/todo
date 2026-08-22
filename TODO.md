@@ -21,9 +21,5 @@ Notes for editors:
 
 # Main
 
-- [x] bootstrap todo file
-  if todo.md does not exist, bootsrrap it
-- [ ] use page up and down to do bigger jumps
+- [x] use page up and down to do bigger jumps
   - [ ] figure out a way to copy title + description multi line
-- [ ] revert the crete child and crete sibling shortcut
-- [ ] option to move items

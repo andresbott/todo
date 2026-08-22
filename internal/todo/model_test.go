@@ -32,6 +32,36 @@ func TestDescendants(t *testing.T) {
 	}
 }
 
+func TestEnclosingCategory(t *testing.T) {
+	work := &todo.Item{Kind: todo.Category, Title: "Work", Level: 1}
+	sub := &todo.Item{Kind: todo.Category, Title: "Backend", Level: 2}
+	task := todo.NewTask("a", "", false)
+	subtask := todo.NewTask("sub", "", false)
+	work.AppendChild(sub)
+	sub.AppendChild(task)
+	task.AppendChild(subtask)
+
+	cases := []struct {
+		name string
+		in   *todo.Item
+		want *todo.Item
+	}{
+		{"category returns itself", work, work},
+		{"task returns its category", task, sub},
+		{"subtask returns nearest category ancestor", subtask, sub},
+	}
+	for _, tc := range cases {
+		if got := tc.in.EnclosingCategory(); got != tc.want {
+			t.Errorf("%s: EnclosingCategory() = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+
+	// A task with no category ancestor yields nil (defensive; not a parsed tree).
+	if got := todo.NewTask("orphan", "", false).EnclosingCategory(); got != nil {
+		t.Errorf("orphan task: EnclosingCategory() = %v, want nil", got)
+	}
+}
+
 func TestTaskCounts(t *testing.T) {
 	parent, _, c2, _ := buildTree()
 	c2.Done = true

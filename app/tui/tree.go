@@ -31,6 +31,10 @@ type tree struct {
 	// on a path to a match (see todo.VisibleItems), ignores the collapse state so
 	// matches inside collapsed parents surface, and drops the placeholder row.
 	filter string
+	// grabbed is true while the item under the cursor is "picked up" for moving:
+	// the arrow keys reorder/re-nest it instead of navigating, and its row is
+	// drawn with the grabbed marker (see rowString).
+	grabbed bool
 }
 
 func newTree(doc *todo.Document) tree {
@@ -110,15 +114,27 @@ func (t *tree) selectItem(it *todo.Item) {
 	}
 }
 
-func (t *tree) moveUp() {
-	if t.cursor > 0 {
-		t.cursor--
-	}
-}
+// navStep is how many rows Page Up / Page Down jump per press: a fixed stride
+// that travels faster than the single-row ↑/↓, independent of the window height.
+const navStep = 10
 
-func (t *tree) moveDown() {
-	if t.cursor < len(t.rows)-1 {
-		t.cursor++
+func (t *tree) moveUp()   { t.moveBy(-1) }
+func (t *tree) moveDown() { t.moveBy(1) }
+
+// pageUp / pageDown jump navStep rows at once (clamped to the ends), for quick
+// travel through a long list.
+func (t *tree) pageUp()   { t.moveBy(-navStep) }
+func (t *tree) pageDown() { t.moveBy(navStep) }
+
+// moveBy shifts the cursor by delta rows (negative up, positive down), clamped
+// to the visible range.
+func (t *tree) moveBy(delta int) {
+	t.cursor += delta
+	if last := len(t.rows) - 1; t.cursor > last {
+		t.cursor = last
+	}
+	if t.cursor < 0 {
+		t.cursor = 0
 	}
 }
 
@@ -207,6 +223,14 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 		}
 	}
 
+	// A selected row is drawn whole in the accent colour behind a "❯ " gutter;
+	// while it is grabbed for moving it switches to the reverse-video grabbed
+	// style and a "⇕ " gutter so the picked-up item is unmistakable.
+	selStyle, gutter := selectedRowStyle, "❯ "
+	if selected && t.grabbed {
+		selStyle, gutter = grabbedRowStyle, "⇕ "
+	}
+
 	if r.item.Kind == todo.Category {
 		title := r.item.Title
 		counts := ""
@@ -214,8 +238,8 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 			counts = fmt.Sprintf(" (%d/%d)", done, total)
 		}
 		if selected {
-			return selectedRowStyle.Render("❯ "+indent+fold) +
-				highlight(title, t.filter, selectedRowStyle) + selectedRowStyle.Render(counts)
+			return selStyle.Render(gutter+indent+fold) +
+				highlight(title, t.filter, selStyle) + selStyle.Render(counts)
 		}
 		return "  " + indent + helpTextStyle.Render(fold) +
 			highlight(title, t.filter, categoryStyle) + helpTextStyle.Render(counts)
@@ -227,7 +251,7 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 		box = "☑"
 	}
 	if selected {
-		return selectedRowStyle.Render("❯ "+indent+fold+box+" ") + highlight(r.item.Title, t.filter, selectedRowStyle)
+		return selStyle.Render(gutter+indent+fold+box+" ") + highlight(r.item.Title, t.filter, selStyle)
 	}
 	if r.item.Done {
 		return "  " + indent + helpTextStyle.Render(fold) + doneStyle.Render(box) + " " + highlight(r.item.Title, t.filter, doneTitleStyle)
