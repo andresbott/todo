@@ -12,6 +12,7 @@ import (
 
 	"github.com/andresbott/todo/app/metainfo"
 	"github.com/andresbott/todo/internal/todo"
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -261,6 +262,11 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.openForm(targetEdit)
+	case "y":
+		if onPH {
+			return m, nil
+		}
+		return m.copySelection()
 	case "d":
 		if onPH {
 			return m, nil
@@ -528,6 +534,43 @@ func (m model) toggleDone() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// writeClipboard copies text to the system clipboard. It is a package variable
+// so tests can stub it — and so the copy path never touches the real clipboard
+// in CI.
+var writeClipboard = clipboard.WriteAll
+
+// copySelection copies the selected item to the system clipboard as plain text,
+// so a task with a multi-line description can be grabbed whole: the details pane
+// word-wraps inside a bordered panel, which the terminal's mouse selection can't
+// cleanly capture. On the platforms without a clipboard tool (a bare Linux box),
+// it reports how to get one; any copy error and the success both show in the footer.
+func (m model) copySelection() (tea.Model, tea.Cmd) {
+	it := m.tree.selected()
+	if it == nil {
+		return m, nil
+	}
+	if clipboard.Unsupported {
+		m.status = "No clipboard tool found — install xclip, xsel or wl-clipboard."
+		return m, nil
+	}
+	if err := writeClipboard(itemCopyText(it)); err != nil {
+		m.status = "Copy failed: " + err.Error()
+		return m, nil
+	}
+	m.status = "Copied to clipboard."
+	return m, nil
+}
+
+// itemCopyText renders an item as plain text for the clipboard: the title, then
+// a blank line and the raw (unwrapped) description when the item is a task that
+// has one. This is the whole item as text, independent of how the pane wraps it.
+func itemCopyText(it *todo.Item) string {
+	if it.IsTask() && it.Description != "" {
+		return it.Title + "\n\n" + it.Description
+	}
+	return it.Title
+}
+
 // openForm prepares and opens the add/edit modal for the given target.
 func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 	sel := m.tree.selected()
@@ -740,7 +783,7 @@ func (m model) footer(width int) string {
 	}
 	parts := []string{
 		hint("↑↓", "Move"), hint("←→", "Fold"), hint("space", "Done"), hint("/", "Search"),
-		hint("n/N", "New/Child"), hint("c", "Cat"), hint("m", "Move"), hint("e", "Edit"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
+		hint("n/N", "New/Child"), hint("c", "Cat"), hint("m", "Move"), hint("e", "Edit"), hint("y", "Copy"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }
