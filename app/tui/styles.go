@@ -23,11 +23,11 @@ var (
 	// so a grabbed item reads as lifted off the list, distinct from a plain
 	// selection.
 	grabbedRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(colAccent).Bold(true)
-	categoryStyle    = lipgloss.NewStyle().Foreground(colTitle).Bold(true)
-	doneStyle        = lipgloss.NewStyle().Foreground(colDone)
-	doneTitleStyle   = lipgloss.NewStyle().Foreground(colDim).Strikethrough(true)
-	labelStyle       = lipgloss.NewStyle().Faint(true)
-	errStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	categoryStyle   = lipgloss.NewStyle().Foreground(colTitle).Bold(true)
+	doneStyle       = lipgloss.NewStyle().Foreground(colDone)
+	doneTitleStyle  = lipgloss.NewStyle().Foreground(colDim).Strikethrough(true)
+	labelStyle      = lipgloss.NewStyle().Faint(true)
+	errStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 
 	helpKeyStyle   = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
 	helpTextStyle  = lipgloss.NewStyle().Foreground(colDim)
