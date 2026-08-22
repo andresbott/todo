@@ -119,6 +119,54 @@ func TestTreePageJumps(t *testing.T) {
 	}
 }
 
+func TestTreeScrollDecoupledFromCursor(t *testing.T) {
+	// One category with 30 tasks: rows Work(0), t0..t29 (1..30), placeholder(31).
+	var b strings.Builder
+	b.WriteString("# Work\n\n")
+	for i := 0; i < 30; i++ {
+		_, _ = fmt.Fprintf(&b, "- [ ] t%d\n", i)
+	}
+	tr := newTree(todo.Parse(b.String()))
+	tr.viewHeight = 10
+
+	// Scroll down well past the first page.
+	for i := 0; i < 15; i++ {
+		tr.moveDown()
+	}
+	if tr.cursor != 15 {
+		t.Fatalf("cursor after 15×moveDown = %d, want 15", tr.cursor)
+	}
+	// The window scrolled just enough to keep the cursor on the last visible row.
+	if want := tr.cursor - tr.viewHeight + 1; tr.offset != want {
+		t.Fatalf("offset after scrolling down = %d, want %d", tr.offset, want)
+	}
+
+	// Regression: moving the cursor up within the window must move the pointer,
+	// not the page. The view used to re-derive the window from the cursor, pinning
+	// the cursor to the bottom row so the whole page slid up on a single step up.
+	page := tr.offset
+	tr.moveUp()
+	if tr.cursor != 14 {
+		t.Errorf("cursor after moveUp = %d, want 14", tr.cursor)
+	}
+	if tr.offset != page {
+		t.Errorf("scroll offset must stay put while the cursor moves within the window: got %d, want %d", tr.offset, page)
+	}
+
+	// Stepping up to the top of the window still doesn't scroll…
+	for tr.cursor > tr.offset {
+		tr.moveUp()
+	}
+	if tr.offset != page {
+		t.Errorf("offset moved while the cursor was still inside the window: got %d, want %d", tr.offset, page)
+	}
+	// …but the next step, which leaves the window, scrolls it up by exactly one.
+	tr.moveUp()
+	if tr.offset != page-1 {
+		t.Errorf("offset should scroll up by one when the cursor leaves the top: got %d, want %d", tr.offset, page-1)
+	}
+}
+
 func TestTreeEmptyView(t *testing.T) {
 	tr := newTree(&todo.Document{})
 	if !strings.Contains(tr.view(40, 10), "new category") {

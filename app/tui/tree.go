@@ -27,6 +27,14 @@ type tree struct {
 	cursor      int
 	rows        []treeRow
 	placeholder *todo.Item // UI-only sentinel backing the "+ new category" row
+	// offset is the index of the first row shown in the left-pane viewport — the
+	// scroll position, kept decoupled from the cursor. The window follows the
+	// cursor only when the cursor would leave it (see reconcileOffset), so moving
+	// the cursor within the page moves the pointer, not the whole page.
+	offset int
+	// viewHeight is how many rows the left-pane viewport can show, set from the
+	// terminal size. reconcileOffset needs it to know the window bounds.
+	viewHeight int
 	// filter is the active search query. When set, rebuild shows only the items
 	// on a path to a match (see todo.VisibleItems), ignores the collapse state so
 	// matches inside collapsed parents surface, and drops the placeholder row.
@@ -79,6 +87,7 @@ func (t *tree) rebuild() {
 	if t.cursor < 0 {
 		t.cursor = 0
 	}
+	t.reconcileOffset()
 }
 
 // setFilter applies a search query (empty clears it) and rebuilds, resetting the
@@ -104,14 +113,23 @@ func (t *tree) onPlaceholder() bool {
 	return t.cursor >= 0 && t.cursor < len(t.rows) && t.rows[t.cursor].placeholder
 }
 
-// selectItem moves the cursor onto it, if it is currently visible.
+// selectItem moves the cursor onto it, if it is currently visible, scrolling the
+// viewport as needed to keep it on screen.
 func (t *tree) selectItem(it *todo.Item) {
 	for i, r := range t.rows {
 		if r.item == it {
 			t.cursor = i
+			t.reconcileOffset()
 			return
 		}
 	}
+}
+
+// selectTop moves the cursor to the first row and scrolls the viewport back to
+// the top — the fallback when a prior selection no longer exists.
+func (t *tree) selectTop() {
+	t.cursor = 0
+	t.reconcileOffset()
 }
 
 // navStep is how many rows Page Up / Page Down jump per press: a fixed stride
@@ -127,7 +145,7 @@ func (t *tree) pageUp()   { t.moveBy(-navStep) }
 func (t *tree) pageDown() { t.moveBy(navStep) }
 
 // moveBy shifts the cursor by delta rows (negative up, positive down), clamped
-// to the visible range.
+// to the visible range, then scrolls the viewport just enough to follow it.
 func (t *tree) moveBy(delta int) {
 	t.cursor += delta
 	if last := len(t.rows) - 1; t.cursor > last {
@@ -135,6 +153,33 @@ func (t *tree) moveBy(delta int) {
 	}
 	if t.cursor < 0 {
 		t.cursor = 0
+	}
+	t.reconcileOffset()
+}
+
+// reconcileOffset scrolls the viewport just enough to keep the cursor visible,
+// leaving it put otherwise. This is what decouples the scroll position from the
+// cursor: the window shifts only when the cursor moves out of it (rather than
+// pinning the cursor to an edge and dragging the whole page along), so stepping
+// the cursor within the page moves the pointer alone.
+func (t *tree) reconcileOffset() {
+	h := t.viewHeight
+	if h < 1 {
+		h = 1
+	}
+	switch {
+	case t.cursor < t.offset: // cursor left above the window: scroll up to it
+		t.offset = t.cursor
+	case t.cursor >= t.offset+h: // cursor left below the window: scroll down to it
+		t.offset = t.cursor - h + 1
+	}
+	// Keep the window within the list: don't scroll past the last row (which would
+	// leave blank space below), nor above the first.
+	if maxOffset := len(t.rows) - h; t.offset > maxOffset {
+		t.offset = maxOffset
+	}
+	if t.offset < 0 {
+		t.offset = 0
 	}
 }
 
@@ -177,15 +222,27 @@ func (t *tree) expand() {
 	}
 }
 
-// view renders the visible window of rows to fit width x height, scrolling so
-// the cursor stays on screen.
+// view renders the visible window of rows to fit width x height, starting from
+// the persistent scroll offset (maintained by reconcileOffset) rather than
+// re-deriving it from the cursor, so the page doesn't slide when the cursor
+// moves within it. The offset is clamped here defensively in case this height
+// differs from the one it was reconciled against (e.g. before the first resize).
 func (t *tree) view(width, height int) string {
 	if height < 1 {
 		height = 1
 	}
-	start := 0
-	if t.cursor >= height {
+	start := t.offset
+	if start > t.cursor {
+		start = t.cursor
+	}
+	if start < t.cursor-height+1 {
 		start = t.cursor - height + 1
+	}
+	if maxStart := len(t.rows) - height; start > maxStart {
+		start = maxStart
+	}
+	if start < 0 {
+		start = 0
 	}
 	end := start + height
 	if end > len(t.rows) {
