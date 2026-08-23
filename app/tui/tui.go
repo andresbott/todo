@@ -383,10 +383,16 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // clearFilter closes the search bar and drops the active filter, restoring the
-// full tree (and its collapse state).
+// full tree (and its collapse state). The item under the cursor stays selected,
+// so returning from a search leaves you on the item you navigated to rather than
+// back at the top.
 func (m *model) clearFilter() {
 	m.searching = false
+	sel := m.tree.selected()
 	m.tree.setFilter("")
+	if sel != nil {
+		m.tree.revealItem(sel)
+	}
 }
 
 // searchWidth sizes the search input to the footer width.
