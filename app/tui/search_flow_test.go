@@ -74,6 +74,53 @@ func TestEscInMainClearsActiveFilter(t *testing.T) {
 	}
 }
 
+func TestClearFilterKeepsFocusOnNavigatedItem(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] catalog\n- [ ] category\n- [ ] other\n")
+	m = press(m, "/")
+	m = typeText(m, "cat") // filtered rows: Work, catalog, category
+	m = press(m, "down", "down")
+	if sel := m.tree.selected(); sel == nil || sel.Title != "category" {
+		t.Fatalf("precondition: cursor should be on \"category\" while filtering, got %v", sel)
+	}
+	m = press(m, "esc") // clear the filter
+	if m.tree.filter != "" {
+		t.Fatalf("esc should clear the filter, got %q", m.tree.filter)
+	}
+	if sel := m.tree.selected(); sel == nil || sel.Title != "category" {
+		t.Errorf("clearing the filter should keep focus on \"category\", got %v", sel)
+	}
+}
+
+func TestClearFilterFromMainViewKeepsFocus(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] catalog\n- [ ] category\n- [ ] other\n")
+	m = press(m, "/")
+	m = typeText(m, "cat")
+	m = press(m, "enter")        // keep the filter, leave the search bar
+	m = press(m, "down", "down") // navigate in the main view to "category"
+	if sel := m.tree.selected(); sel == nil || sel.Title != "category" {
+		t.Fatalf("precondition: cursor should be on \"category\", got %v", sel)
+	}
+	m = press(m, "esc") // esc in the main view clears the active filter
+	if sel := m.tree.selected(); sel == nil || sel.Title != "category" {
+		t.Errorf("clearing the filter from the main view should keep focus on \"category\", got %v", sel)
+	}
+}
+
+func TestClearFilterRevealsItemInsideCollapsedParent(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n")
+	m.tree.collapsed[find(m.doc, "Task A")] = true // the match is hidden in the unfiltered tree
+	m = press(m, "/")
+	m = typeText(m, "cat") // filtering reveals the match regardless of the fold
+	m = press(m, "down", "down")
+	if sel := m.tree.selected(); sel == nil || sel.Title != "Explore catacombs" {
+		t.Fatalf("precondition: cursor should be on the match while filtering, got %v", sel)
+	}
+	m = press(m, "esc") // clear the filter
+	if sel := m.tree.selected(); sel == nil || sel.Title != "Explore catacombs" {
+		t.Errorf("clearing the filter should reveal and keep focus on the match, got %v", sel)
+	}
+}
+
 func TestSearchMatchesDescription(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] groceries\n    remember cat food\n- [ ] laundry\n")
 	m = press(m, "/")

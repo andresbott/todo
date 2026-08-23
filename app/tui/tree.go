@@ -125,6 +125,18 @@ func (t *tree) selectItem(it *todo.Item) {
 	}
 }
 
+// revealItem expands every ancestor of it (so a collapsed fold can't hide it),
+// rebuilds, and moves the cursor onto it. Used when returning from a filtered
+// view — where the collapse state is ignored — so the focused item stays selected
+// even when it lives inside a fold.
+func (t *tree) revealItem(it *todo.Item) {
+	for p := it.Parent; p != nil; p = p.Parent {
+		delete(t.collapsed, p)
+	}
+	t.rebuild()
+	t.selectItem(it)
+}
+
 // selectTop moves the cursor to the first row and scrolls the viewport back to
 // the top — the fallback when a prior selection no longer exists.
 func (t *tree) selectTop() {
