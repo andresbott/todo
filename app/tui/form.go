@@ -27,6 +27,10 @@ type form struct {
 	isTask  bool // false → category form (title only)
 	editing bool // false → adding (only affects the window title)
 	width   int  // terminal width, for sizing
+	// meta is the read-only header shown above the fields when editing an existing
+	// item — its status and subtask progress, carried over from the old details
+	// view. Empty when adding (there is no item yet).
+	meta string
 }
 
 func newForm(titleVal, descVal string, isTask, editing bool) form {
@@ -137,6 +141,10 @@ func (f form) view() string {
 	}
 
 	var b strings.Builder
+	if f.meta != "" {
+		b.WriteString(f.meta)
+		b.WriteString("\n\n")
+	}
 	b.WriteString(fieldLabel("Title", f.focus == focusTitle))
 	b.WriteString("\n")
 	b.WriteString(f.underline(f.title.View(), f.focus == focusTitle))

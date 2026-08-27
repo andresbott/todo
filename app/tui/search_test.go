@@ -63,20 +63,6 @@ func TestHighlightPreservesOriginalCase(t *testing.T) {
 	}
 }
 
-func TestHighlightLinesMarksEachLine(t *testing.T) {
-	got := highlightLines("buy cat food\nfeed the cat", "cat")
-	if strings.Count(got, matchStyle.Render("cat")) != 2 {
-		t.Errorf("both occurrences across lines should be highlighted, got %q", got)
-	}
-}
-
-func TestHighlightLinesEmptyQueryUnchanged(t *testing.T) {
-	block := "line one\nline two"
-	if got := highlightLines(block, ""); got != block {
-		t.Errorf("an empty query should return the block unchanged, got %q", got)
-	}
-}
-
 func TestTreeFilterHidesNonMatches(t *testing.T) {
 	d := todo.Parse("# Work\n\n- [ ] Task A\n  - [ ] Explore catacombs\n  - [ ] Buy supplies\n- [ ] Task B\n\n# Home\n\n- [ ] Groceries\n")
 	tr := newTree(d)

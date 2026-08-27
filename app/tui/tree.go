@@ -7,7 +7,7 @@ import (
 	"github.com/andresbott/todo/internal/todo"
 )
 
-// treeRow is one visible line of the left pane: an item and its nesting depth.
+// treeRow is one visible line of the task tree: an item and its nesting depth.
 // The placeholder flag marks the synthetic "+ new category" row.
 type treeRow struct {
 	item        *todo.Item
@@ -273,7 +273,8 @@ func (t *tree) view(width, height int) string {
 // rowString renders one row. A selected row is drawn wholly in the accent
 // colour behind a "❯ " gutter; unselected rows keep their per-token styling
 // (purple categories, green ticks, struck-through done titles) behind a
-// matching two-space gutter so columns line up.
+// matching two-space gutter so columns line up. A task that has a description
+// carries a trailing "≡" marker.
 func (t *tree) rowString(r treeRow, selected bool) string {
 	if r.placeholder {
 		if selected {
@@ -319,11 +320,17 @@ func (t *tree) rowString(r treeRow, selected bool) string {
 	if r.item.Done {
 		box = "☑"
 	}
+	// A task with a description gets a trailing ≡ marker, so the single-panel list
+	// still shows at a glance which items have details to open (enter).
+	note := ""
+	if r.item.Description != "" {
+		note = " ≡"
+	}
 	if selected {
-		return selStyle.Render(gutter+indent+fold+box+" ") + highlight(r.item.Title, t.filter, selStyle)
+		return selStyle.Render(gutter+indent+fold+box+" ") + highlight(r.item.Title, t.filter, selStyle) + selStyle.Render(note)
 	}
 	if r.item.Done {
-		return "  " + indent + helpTextStyle.Render(fold) + doneStyle.Render(box) + " " + highlight(r.item.Title, t.filter, doneTitleStyle)
+		return "  " + indent + helpTextStyle.Render(fold) + doneStyle.Render(box) + " " + highlight(r.item.Title, t.filter, doneTitleStyle) + helpTextStyle.Render(note)
 	}
-	return "  " + indent + helpTextStyle.Render(fold) + box + " " + highlight(r.item.Title, t.filter, plainStyle)
+	return "  " + indent + helpTextStyle.Render(fold) + box + " " + highlight(r.item.Title, t.filter, plainStyle) + helpTextStyle.Render(note)
 }

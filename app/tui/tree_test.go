@@ -173,3 +173,14 @@ func TestTreeEmptyView(t *testing.T) {
 		t.Errorf("an empty tree should still show the + new category placeholder")
 	}
 }
+
+func TestTreeDescriptionMarker(t *testing.T) {
+	d := todo.Parse("# Work\n\n- [ ] a\n  notes here\n- [ ] b\n")
+	tr := newTree(d)
+	if got := tr.rowString(treeRow{item: find(d, "a")}, false); !strings.Contains(got, "≡") {
+		t.Errorf("a task with a description should carry the ≡ marker, got %q", got)
+	}
+	if got := tr.rowString(treeRow{item: find(d, "b")}, false); strings.Contains(got, "≡") {
+		t.Errorf("a task without a description must not carry the marker, got %q", got)
+	}
+}
