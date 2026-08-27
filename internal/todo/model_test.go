@@ -64,7 +64,7 @@ func TestEnclosingCategory(t *testing.T) {
 
 func TestTaskCounts(t *testing.T) {
 	parent, _, c2, _ := buildTree()
-	c2.Done = true
+	c2.Status = todo.Done
 	done, total := parent.TaskCounts()
 	if done != 1 || total != 3 {
 		t.Errorf("counts = %d/%d, want 1/3", done, total)
@@ -75,13 +75,13 @@ func TestCascadeSetDone(t *testing.T) {
 	parent, c1, c2, g1 := buildTree()
 	todo.CascadeSetDone(parent, true)
 	for _, it := range []*todo.Item{parent, c1, c2, g1} {
-		if !it.Done {
+		if !it.IsDone() {
 			t.Errorf("%s should be done after cascade", it.Title)
 		}
 	}
 	todo.CascadeSetDone(parent, false)
 	for _, it := range []*todo.Item{parent, c1, c2, g1} {
-		if it.Done {
+		if it.IsDone() {
 			t.Errorf("%s should be undone after reverse cascade", it.Title)
 		}
 	}
@@ -90,21 +90,21 @@ func TestCascadeSetDone(t *testing.T) {
 func TestSnapshotRestore(t *testing.T) {
 	parent, c1, c2, g1 := buildTree()
 	// A mixed prior state: c2 already done, the rest not.
-	c2.Done = true
+	c2.Status = todo.Done
 
 	snap := todo.SnapshotDone(parent)
 	// Accidental complete: everything forced done.
 	todo.CascadeSetDone(parent, true)
-	if !c1.Done || !g1.Done {
+	if !c1.IsDone() || !g1.IsDone() {
 		t.Fatalf("cascade should have completed all children")
 	}
 
 	// Undo: restore exactly the prior mixed state.
 	todo.RestoreDone(snap)
-	if parent.Done || c1.Done || g1.Done {
+	if parent.IsDone() || c1.IsDone() || g1.IsDone() {
 		t.Errorf("restore should have undone parent/c1/g1")
 	}
-	if !c2.Done {
+	if !c2.IsDone() {
 		t.Errorf("restore should have kept c2 done (its prior state)")
 	}
 }

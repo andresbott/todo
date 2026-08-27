@@ -61,6 +61,17 @@ func TestFileContentLeadsWithGuide(t *testing.T) {
 	}
 }
 
+func TestGuideDocumentsAllMarkers(t *testing.T) {
+	// The guide teaches editors the format todo parses, so it must mention every
+	// checkbox marker the parser accepts.
+	fc := (&todo.Document{}).FileContent()
+	for _, marker := range []string{"[ ]", "[x]", "[/]", "[>]"} {
+		if !strings.Contains(fc, marker) {
+			t.Errorf("the guide should document the %q marker, got:\n%s", marker, fc)
+		}
+	}
+}
+
 func TestFileContentOnEmptyDocStillHasGuide(t *testing.T) {
 	fc := (&todo.Document{}).FileContent()
 	if !strings.Contains(fc, "<!-- todo:guide") || !strings.Contains(fc, repoURL) {

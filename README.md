@@ -95,6 +95,8 @@ An example task file:
 | `enter` | Open the selected item's dialog — its status/progress plus its editable title & description |
 | `space` | Toggle a task done, or fold / unfold a header (category) |
 | `x` | Toggle a task done |
+| `p` | Toggle a task **in progress** (`[/]`) — press again to clear it |
+| `>` | Toggle a task **deferred** (`[>]`) — press again to clear it |
 | `n` | New task as a sibling — at the end of the current level (on a category, a task inside it) |
 | `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
 | `c` | Add a category (a subcategory when a category is selected) |
@@ -149,16 +151,18 @@ The app owns a small, standard subset of markdown:
 - [ ] Ship v1.0 release
   The description sits indented under the task and shows in the item's dialog.
   - [x] Write changelog
-  - [ ] Cut the git tag
+  - [/] Cut the git tag
 - [x] Fix login bug
 
 ## Backend
 
-- [ ] Migrate the database
+- [>] Migrate the database
 ```
 
 - **Headers** (`#`..`######`) are categories and nest by level.
-- **`- [ ]` / `- [x]`** lines are tasks; indentation nests subtasks.
+- **Tasks** are checkbox lines; indentation nests subtasks. Four states:
+  `- [ ]` open, `- [/]` in progress, `- [>]` deferred, `- [x]` done — all
+  standard markers that render on GitHub and in editors like Obsidian too.
 - **Indented text** under a task (that isn't a checkbox) is its description.
 - Text before the first header/task is preserved as-is; other free-form prose
   between items is not part of the format.

@@ -21,7 +21,12 @@ func treeString(d *todo.Document) string {
 				fmt.Fprintf(&b, "H%d %s\n", it.Level, it.Title)
 			} else {
 				box := " "
-				if it.Done {
+				switch it.Status {
+				case todo.InProgress:
+					box = "/"
+				case todo.Deferred:
+					box = ">"
+				case todo.Done:
 					box = "x"
 				}
 				fmt.Fprintf(&b, "[%s] %s", box, it.Title)
@@ -131,8 +136,21 @@ func TestParseTasksBeforeAnyHeader(t *testing.T) {
 
 func TestParseUppercaseX(t *testing.T) {
 	d := todo.Parse("- [X] done\n")
-	if !d.Roots[0].Done {
+	if !d.Roots[0].IsDone() {
 		t.Errorf("[X] should parse as done")
+	}
+}
+
+func TestParseInProgressAndDeferred(t *testing.T) {
+	d := todo.Parse("- [/] a\n- [>] b\n")
+	if len(d.Roots) != 2 {
+		t.Fatalf("both extended markers should parse as tasks, got %d roots:\n%s", len(d.Roots), treeString(d))
+	}
+	if got := d.Roots[0].Status; got != todo.InProgress {
+		t.Errorf("[/] should parse as InProgress, got %v", got)
+	}
+	if got := d.Roots[1].Status; got != todo.Deferred {
+		t.Errorf("[>] should parse as Deferred, got %v", got)
 	}
 }
 

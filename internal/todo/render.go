@@ -2,6 +2,21 @@ package todo
 
 import "strings"
 
+// markerFromStatus maps a Status to its checkbox marker char, the inverse of
+// statusFromMarker (see parse.go); the two must stay in sync.
+func markerFromStatus(s Status) string {
+	switch s {
+	case Done:
+		return "x"
+	case InProgress:
+		return "/"
+	case Deferred:
+		return ">"
+	default: // Open
+		return " "
+	}
+}
+
 // Render serializes the document back to canonical markdown: the preamble (if
 // any), then each item. Headers get a blank line of breathing room on each
 // side; task lists stay tight; a task's description follows its checkbox line
@@ -33,10 +48,7 @@ func appendItems(lines []string, items []*Item, taskDepth int) []string {
 			continue
 		}
 		indent := strings.Repeat("  ", taskDepth)
-		box := "[ ]"
-		if it.Done {
-			box = "[x]"
-		}
+		box := "[" + markerFromStatus(it.Status) + "]"
 		lines = append(lines, indent+"- "+box+" "+it.Title)
 		if it.Description != "" {
 			for _, dl := range strings.Split(it.Description, "\n") {

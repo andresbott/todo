@@ -11,11 +11,30 @@ var (
 	// headerRe matches a markdown header line: 1..6 leading '#', a space, then
 	// the title (trimmed).
 	headerRe = regexp.MustCompile(`^(#{1,6})[ \t]+(.*)$`)
-	// checkboxRe matches a task line: optional indentation, a list bullet, a
-	// `[ ]`/`[x]` box, then the title. Group 1 is the indentation, group 2 the
-	// box char, group 3 the title.
-	checkboxRe = regexp.MustCompile(`^([ \t]*)[-*+][ \t]+\[([ xX])\][ \t]?(.*)$`)
+	// checkboxRe matches a task line: optional indentation, a list bullet, a box
+	// holding one status marker, then the title. Group 1 is the indentation,
+	// group 2 the marker char, group 3 the title. The accepted marker set must
+	// stay in sync with statusFromMarker: space (open), x/X (done), / (in
+	// progress), > (deferred). Any other char fails the match, so a line the app
+	// doesn't own is left as prose rather than mis-parsed as a task.
+	checkboxRe = regexp.MustCompile(`^([ \t]*)[-*+][ \t]+\[([ xX/>])\][ \t]?(.*)$`)
 )
+
+// statusFromMarker maps a checkbox marker char (checkboxRe's group 2) to a
+// Status. It is the inverse of markerFromStatus (see render.go); the two must
+// agree, and both with checkboxRe's accepted set.
+func statusFromMarker(marker string) Status {
+	switch marker {
+	case "x", "X":
+		return Done
+	case "/":
+		return InProgress
+	case ">":
+		return Deferred
+	default: // " "
+		return Open
+	}
+}
 
 // Load reads and parses the TODO file at path. A missing file is not an error:
 // it yields an empty document, so `todo new-file.md` starts a fresh list that
@@ -135,9 +154,9 @@ func Parse(src string) *Document {
 			flushDesc()
 			indent := len(m[1])
 			task := &Item{
-				Kind:  Task,
-				Title: strings.TrimRight(m[3], " \t"),
-				Done:  m[2] == "x" || m[2] == "X",
+				Kind:   Task,
+				Title:  strings.TrimRight(m[3], " \t"),
+				Status: statusFromMarker(m[2]),
 			}
 			for len(taskStack) > 0 && taskStack[len(taskStack)-1].indent >= indent {
 				taskStack = taskStack[:len(taskStack)-1]
