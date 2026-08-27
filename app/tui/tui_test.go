@@ -46,7 +46,7 @@ func TestEnterOpensEditDialog(t *testing.T) {
 func TestToggleLeafPersists(t *testing.T) {
 	m, path := newTestModel(t, "# Work\n\n- [ ] a\n")
 	m = press(m, "down", "space")
-	if !find(m.doc, "a").Done {
+	if !find(m.doc, "a").IsDone() {
 		t.Errorf("task should be done in memory")
 	}
 	if !strings.Contains(readFile(t, path), "- [x] a") {
@@ -61,20 +61,20 @@ func TestCascadeCompleteAndRevert(t *testing.T) {
 	// Mark the parent done: everything cascades to done.
 	m = press(m, "space")
 	for _, tt := range []string{"parent", "c1", "c2"} {
-		if !find(m.doc, tt).Done {
+		if !find(m.doc, tt).IsDone() {
 			t.Fatalf("%s should be done after cascade", tt)
 		}
 	}
 
 	// Unmark the parent: children restore to the prior mixed state.
 	m = press(m, "space")
-	if find(m.doc, "parent").Done {
+	if find(m.doc, "parent").IsDone() {
 		t.Errorf("parent should be undone")
 	}
-	if find(m.doc, "c1").Done {
+	if find(m.doc, "c1").IsDone() {
 		t.Errorf("c1 should be restored to not-done")
 	}
-	if !find(m.doc, "c2").Done {
+	if !find(m.doc, "c2").IsDone() {
 		t.Errorf("c2 should be restored to done (its prior state)")
 	}
 }
@@ -90,13 +90,13 @@ func TestManualChildToggleInvalidatesSnapshot(t *testing.T) {
 	m = press(m, "up")    // parent
 	m = press(m, "space") // unmark parent (no snapshot now)
 
-	if find(m.doc, "parent").Done {
+	if find(m.doc, "parent").IsDone() {
 		t.Errorf("parent should be undone")
 	}
-	if find(m.doc, "c1").Done {
+	if find(m.doc, "c1").IsDone() {
 		t.Errorf("c1 was manually turned off, should stay off")
 	}
-	if !find(m.doc, "c2").Done {
+	if !find(m.doc, "c2").IsDone() {
 		t.Errorf("c2 should still be done — the stale snapshot must not have restored it to false")
 	}
 }
@@ -112,7 +112,7 @@ func TestSpaceFoldsCategory(t *testing.T) {
 	if len(m.tree.rows) != before {
 		t.Fatalf("space should expand the header again: rows %d -> %d", before, len(m.tree.rows))
 	}
-	if find(m.doc, "a").Done {
+	if find(m.doc, "a").IsDone() {
 		t.Errorf("folding a header must not complete its task")
 	}
 }

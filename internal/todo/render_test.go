@@ -42,6 +42,14 @@ func TestRenderPreservesPreamble(t *testing.T) {
 	}
 }
 
+func TestRenderStatusMarkersRoundTrip(t *testing.T) {
+	// All four checkbox markers must round-trip verbatim through parse → render.
+	src := "# W\n\n- [ ] open\n- [/] prog\n- [>] defer\n- [x] done\n"
+	if got := todo.Parse(src).Render(); got != src {
+		t.Errorf("status markers should round-trip:\n got:\n%q\nwant:\n%q", got, src)
+	}
+}
+
 func TestRenderEmpty(t *testing.T) {
 	if got := (&todo.Document{}).Render(); got != "" {
 		t.Errorf("empty document should render to empty string, got %q", got)

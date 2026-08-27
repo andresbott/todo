@@ -24,6 +24,7 @@ so todo can parse what you write:
   # Heading           Headings ("#" to "######") are categories; they nest by
                       heading level.
   - [ ] Open task     A "- [ ]" line is an open task; "- [x]" marks it done.
+  - [/] In progress   "- [/]" flags a task in progress, "- [>]" defers it.
   - [x] Done task     Tasks must live under a category heading.
     - [ ] Subtask     Indent by two spaces to nest a subtask under a task.
     Description text  An indented, non-checkbox line is the task's description.

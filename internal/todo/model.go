@@ -13,19 +13,33 @@ const (
 	// Category is a markdown header (`#`..`######`); it groups sub-categories
 	// and tasks and carries no Done/Description of its own.
 	Category Kind = iota
-	// Task is a checkbox list item (`- [ ]` / `- [x]`); it carries a Done flag
+	// Task is a checkbox list item (`- [ ]` / `- [x]`); it carries a Status
 	// and a free-form Description, and may nest sub-tasks.
 	Task
 )
 
+// Status is a task's completion state. Open and Done are the classic checkbox
+// states; InProgress and Deferred are extra flags. Each maps to an extended
+// checkbox marker on disk — `[ ]` `[/]` `[>]` `[x]` — parsed and rendered by
+// this package. Only Done reads as "complete": counts, pruning and the
+// done-cascade all key off IsDone, so InProgress and Deferred count as not done.
+type Status int
+
+const (
+	Open       Status = iota // `[ ]`
+	InProgress               // `[/]`
+	Deferred                 // `[>]`
+	Done                     // `[x]`
+)
+
 // Item is one node of the TODO tree. Categories nest by header level and hold
 // sub-categories and tasks; tasks nest by list indentation and hold sub-tasks.
-// Only tasks use Done and Description; only categories use Level.
+// Only tasks use Status and Description; only categories use Level.
 type Item struct {
 	Kind        Kind
 	Title       string
 	Level       int    // Category only: header level 1..6
-	Done        bool   // Task only
+	Status      Status // Task only
 	Description string // Task only: free-form text shown in the details view
 	Children    []*Item
 	Parent      *Item // nil for a root item
@@ -42,6 +56,11 @@ type Document struct {
 // IsTask reports whether the item is a task (rather than a category).
 func (it *Item) IsTask() bool { return it.Kind == Task }
 
+// IsDone reports whether the task is complete. It is the successor to the old
+// Done bool: the done-cascade, counts and pruning all key off it, so a task that
+// is InProgress or Deferred reads as not done.
+func (it *Item) IsDone() bool { return it.Status == Done }
+
 // EnclosingCategory returns the nearest category at or above it: it itself when
 // it is a category, otherwise its closest category ancestor. It returns nil
 // only for a task with no category ancestor, which does not occur in a parsed
@@ -55,9 +74,15 @@ func (it *Item) EnclosingCategory() *Item {
 	return nil
 }
 
-// NewTask builds a task item (with no children or parent set yet).
+// NewTask builds a task item (with no children or parent set yet). The done
+// flag maps to Done or Open; a caller wanting InProgress/Deferred sets Status
+// afterwards.
 func NewTask(title, description string, done bool) *Item {
-	return &Item{Kind: Task, Title: title, Description: description, Done: done}
+	st := Open
+	if done {
+		st = Done
+	}
+	return &Item{Kind: Task, Title: title, Description: description, Status: st}
 }
 
 // AppendChild appends c as the last child of it, setting c.Parent.
@@ -166,7 +191,7 @@ func (it *Item) TaskCounts() (done, total int) {
 	for _, c := range it.Descendants() {
 		if c.Kind == Task {
 			total++
-			if c.Done {
+			if c.IsDone() {
 				done++
 			}
 		}
@@ -174,33 +199,39 @@ func (it *Item) TaskCounts() (done, total int) {
 	return done, total
 }
 
-// DoneStates records the Done flag of a set of tasks, so a cascade-complete can
-// be reverted to the exact prior state. It is the in-memory snapshot behind the
-// "I marked the parent done by accident" undo.
-type DoneStates map[*Item]bool
+// DoneStates records the Status of a set of tasks, so a cascade-complete can be
+// reverted to the exact prior state — including a child that was InProgress or
+// Deferred. It is the in-memory snapshot behind the "I marked the parent done by
+// accident" undo.
+type DoneStates map[*Item]Status
 
-// SnapshotDone captures the Done state of it and all its descendant tasks.
+// SnapshotDone captures the Status of it and all its descendant tasks.
 func SnapshotDone(it *Item) DoneStates {
-	s := DoneStates{it: it.Done}
+	s := DoneStates{it: it.Status}
 	for _, d := range it.Descendants() {
-		s[d] = d.Done
+		s[d] = d.Status
 	}
 	return s
 }
 
-// RestoreDone re-applies a snapshot's recorded Done states.
+// RestoreDone re-applies a snapshot's recorded statuses.
 func RestoreDone(s DoneStates) {
-	for it, done := range s {
-		it.Done = done
+	for it, st := range s {
+		it.Status = st
 	}
 }
 
-// CascadeSetDone sets Done on it and every descendant task — the behaviour
-// where completing a parent completes all its children.
+// CascadeSetDone sets it and every descendant task to Done (done=true) or Open
+// (done=false) — the behaviour where completing a parent completes all its
+// children.
 func CascadeSetDone(it *Item, done bool) {
-	it.Done = done
+	st := Open
+	if done {
+		st = Done
+	}
+	it.Status = st
 	for _, d := range it.Descendants() {
-		d.Done = done
+		d.Status = st
 	}
 }
 
@@ -209,7 +240,7 @@ func CascadeSetDone(it *Item, done bool) {
 // task that still holds an unfinished sub-task is *not* fully done, so removing
 // it would discard work the user hasn't finished.
 func fullyDone(it *Item) bool {
-	if !it.IsTask() || !it.Done {
+	if !it.IsTask() || !it.IsDone() {
 		return false
 	}
 	done, total := it.TaskCounts()

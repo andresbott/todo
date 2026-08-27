@@ -9,6 +9,7 @@ so todo can parse what you write:
   # Heading           Headings ("#" to "######") are categories; they nest by
                       heading level.
   - [ ] Open task     A "- [ ]" line is an open task; "- [x]" marks it done.
+  - [/] In progress   "- [/]" flags a task in progress, "- [>]" defers it.
   - [x] Done task     Tasks must live under a category heading.
     - [ ] Subtask     Indent by two spaces to nest a subtask under a task.
     Description text  An indented, non-checkbox line is the task's description.
@@ -30,7 +31,7 @@ Notes for editors:
 - [x] Fix login bug
 - [ ] Review PR #142
   Big refactor — read it in two sittings.
-- [ ] Update the API docs
+- [/] Update the API docs
 - [ ] Triage incoming bug reports
 - [ ] Prepare the sprint demo
 
@@ -41,7 +42,7 @@ Notes for editors:
   Run the migration on staging first.
   - [ ] Write the migration script
   - [ ] Back up production data
-  - [ ] Verify row counts
+  - [/] Verify row counts
 - [ ] Add rate limiting
 - [x] Refactor auth middleware
 - [ ] Write integration tests

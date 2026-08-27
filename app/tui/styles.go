@@ -13,6 +13,8 @@ var (
 	colDim    = lipgloss.Color("240") // gray: unfocused borders, labels, hints
 	colTitle  = lipgloss.Color("141") // purple: app name in the header
 	colDone   = lipgloss.Color("10")  // green: a completed task's checkbox
+	colProg   = lipgloss.Color("214") // orange: a task in progress
+	colDefer  = lipgloss.Color("39")  // blue: a deferred task
 )
 
 var (
@@ -25,6 +27,8 @@ var (
 	grabbedRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(colAccent).Bold(true)
 	categoryStyle   = lipgloss.NewStyle().Foreground(colTitle).Bold(true)
 	doneStyle       = lipgloss.NewStyle().Foreground(colDone)
+	progStyle       = lipgloss.NewStyle().Foreground(colProg)
+	deferStyle      = lipgloss.NewStyle().Foreground(colDefer)
 	doneTitleStyle  = lipgloss.NewStyle().Foreground(colDim).Strikethrough(true)
 	labelStyle      = lipgloss.NewStyle().Faint(true)
 	errStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))

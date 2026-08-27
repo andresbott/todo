@@ -252,6 +252,10 @@ func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.toggleDone()
 	case "x":
 		return m.toggleDone()
+	case "p":
+		return m.setStatus(todo.InProgress)
+	case ">":
+		return m.setStatus(todo.Deferred)
 	case "n":
 		return m.openForm(targetAddSibling)
 	case "N":
@@ -530,18 +534,43 @@ func (m model) toggleDone() (tea.Model, tea.Cmd) {
 		delete(m.snapshots, p)
 	}
 	switch {
-	case it.Done:
+	case it.IsDone():
 		if snap, ok := m.snapshots[it]; ok {
 			todo.RestoreDone(snap)
 			delete(m.snapshots, it)
 		} else {
-			it.Done = false
+			it.Status = todo.Open
 		}
 	case len(it.Children) > 0:
 		m.snapshots[it] = todo.SnapshotDone(it)
 		todo.CascadeSetDone(it, true)
 	default:
-		it.Done = true
+		it.Status = todo.Done
+	}
+	m.save()
+	m.tree.rebuild()
+	return m, nil
+}
+
+// setStatus flags the selected task with target (in progress / deferred),
+// toggling it back to Open when it already has that status. Unlike done, these
+// flags never cascade — they describe the task itself, not its subtree — but
+// setting one still invalidates any accidental-complete snapshot on the task or
+// an ancestor, since a later parent-untoggle would otherwise fight this change.
+func (m model) setStatus(target todo.Status) (tea.Model, tea.Cmd) {
+	it := m.tree.selected()
+	if it == nil || !it.IsTask() {
+		m.status = "Only tasks can be flagged."
+		return m, nil
+	}
+	for p := it.Parent; p != nil; p = p.Parent {
+		delete(m.snapshots, p)
+	}
+	delete(m.snapshots, it)
+	if it.Status == target {
+		it.Status = todo.Open
+	} else {
+		it.Status = target
 	}
 	m.save()
 	m.tree.rebuild()
@@ -813,7 +842,8 @@ func (m model) footer(width int) string {
 	}
 	parts := []string{
 		hint("↑↓", "Move"), hint("←→", "Fold"), hint("space", "Done"), hint("/", "Search"),
-		hint("n/N", "New"), hint("c", "Cat"), hint("m", "Move"), hint("enter/e", "Edit"), hint("y", "Copy"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
+		hint("n/N", "New"), hint("c", "Cat"), hint("m", "Move"), hint("enter/e", "Edit"), hint("y", "Copy"), hint("d", "Del"), hint("D", "Clear"),
+		hint("p", "Prog"), hint(">", "Defer"), hint("q", "Quit"),
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }
@@ -830,9 +860,16 @@ func itemMeta(it *todo.Item) string {
 		done, total := it.TaskCounts()
 		return labelStyle.Render("Category") + helpTextStyle.Render(fmt.Sprintf("  ·  %d of %d tasks done", done, total))
 	}
-	status := helpTextStyle.Render("○ open")
-	if it.Done {
+	var status string
+	switch it.Status {
+	case todo.InProgress:
+		status = progStyle.Render("◐ in progress")
+	case todo.Deferred:
+		status = deferStyle.Render("⏸ deferred")
+	case todo.Done:
 		status = doneStyle.Render("● done")
+	default:
+		status = helpTextStyle.Render("○ open")
 	}
 	if done, total := it.TaskCounts(); total > 0 {
 		status += helpTextStyle.Render("  ·  ") + labelStyle.Render("Subtasks") + helpTextStyle.Render(fmt.Sprintf(" %d/%d done", done, total))
@@ -845,7 +882,7 @@ func overallCounts(d *todo.Document) (done, total int) {
 	for _, r := range d.Roots {
 		if r.Kind == todo.Task {
 			total++
-			if r.Done {
+			if r.IsDone() {
 				done++
 			}
 		}
