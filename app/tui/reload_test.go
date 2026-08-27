@@ -73,7 +73,7 @@ func TestReloadPreservesSelection(t *testing.T) {
 
 func TestReloadPreservesFold(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = press(m, "enter") // Work is selected at start; collapse it
+	m = press(m, "space") // Work is selected at start; space folds the header, collapsing it
 	m = send(m, fileReloadedMsg{doc: todo.Parse("# Work\n\n- [ ] a\n- [ ] b\n"), content: "x"})
 	work := m.tree.selected()
 	if work.Title != "Work" || !m.tree.collapsed[work] {

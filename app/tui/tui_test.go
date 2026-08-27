@@ -23,16 +23,23 @@ func TestNavigateAndSelect(t *testing.T) {
 	}
 }
 
-func TestFoldHidesChildren(t *testing.T) {
+func TestEnterOpensEditDialog(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	before := len(m.tree.rows)
-	m = press(m, "enter") // collapse Work (selected)
-	if len(m.tree.rows) != before-1 {
-		t.Fatalf("collapse should hide the one child: rows %d -> %d", before, len(m.tree.rows))
+	// On a category, enter opens the combined dialog to rename it — showing its kind.
+	m = press(m, "enter")
+	if m.mode != modeForm {
+		t.Fatalf("enter should open the edit dialog, mode = %v", m.mode)
 	}
-	m = press(m, "enter") // expand again
-	if len(m.tree.rows) != before {
-		t.Fatalf("expand should restore rows to %d, got %d", before, len(m.tree.rows))
+	if out := m.View(); !strings.Contains(out, "Rename category") || !strings.Contains(out, "Category") {
+		t.Errorf("the category dialog should show the rename form and the Category label:\n%s", out)
+	}
+	m = press(m, "esc")
+	if m.mode != modeMain {
+		t.Fatalf("esc should close the dialog, mode = %v", m.mode)
+	}
+	// e opens the very same dialog.
+	if m2 := press(m, "e"); m2.mode != modeForm {
+		t.Fatalf("e should open the edit dialog too, mode = %v", m2.mode)
 	}
 }
 
@@ -94,9 +101,25 @@ func TestManualChildToggleInvalidatesSnapshot(t *testing.T) {
 	}
 }
 
-func TestToggleCategoryIsNoOp(t *testing.T) {
+func TestSpaceFoldsCategory(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
-	m = press(m, "space") // Work category is selected
+	before := len(m.tree.rows) // Work category is selected
+	m = press(m, "space")      // collapse Work, hiding its task
+	if len(m.tree.rows) != before-1 {
+		t.Fatalf("space should collapse the selected header: rows %d -> %d", before, len(m.tree.rows))
+	}
+	m = press(m, "space") // expand again
+	if len(m.tree.rows) != before {
+		t.Fatalf("space should expand the header again: rows %d -> %d", before, len(m.tree.rows))
+	}
+	if find(m.doc, "a").Done {
+		t.Errorf("folding a header must not complete its task")
+	}
+}
+
+func TestCompleteCategoryIsNoOp(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [ ] a\n")
+	m = press(m, "x") // x still means "toggle done", which a category can't be
 	if m.status == "" {
 		t.Errorf("expected a status message explaining categories can't be completed")
 	}
@@ -513,13 +536,47 @@ func TestHeaderShowsVersion(t *testing.T) {
 func TestViewSmoke(t *testing.T) {
 	m, _ := newTestModel(t, "# Work\n\n- [ ] alpha\n")
 	out := m.View()
-	for _, want := range []string{"todo", "Tasks", "Details", "Work", "alpha"} {
+	for _, want := range []string{"todo", "Tasks", "Work", "alpha"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("main view missing %q", want)
 		}
 	}
+	if strings.Contains(out, "Details") {
+		t.Errorf("the single-panel main view must not embed a details panel:\n%s", out)
+	}
+	// enter opens the combined view/edit dialog over the (dimmed) main view.
+	if dv := press(m, "down", "enter").View(); !strings.Contains(dv, "Edit task") {
+		t.Errorf("enter should open the edit dialog:\n%s", dv)
+	}
 	m = press(m, "n")
 	if !strings.Contains(m.View(), "Add task") {
 		t.Errorf("form view should show the Add task title")
+	}
+}
+
+// TestEditDialogCombinesViewAndEdit checks the single dialog keeps the features
+// of both the old view and edit dialogs: the item's read-only status and subtask
+// progress, plus its editable title/description with Save.
+func TestEditDialogCombinesViewAndEdit(t *testing.T) {
+	m, _ := newTestModel(t, "# Work\n\n- [x] parent\n  the description\n  - [x] child\n")
+	m = press(m, "down") // task "parent" (done, has a description and a subtask)
+	m = press(m, "enter")
+	if m.mode != modeForm {
+		t.Fatalf("enter should open the edit dialog, mode = %v", m.mode)
+	}
+	out := m.View()
+	// View features carried in: done status and subtask progress.
+	if !strings.Contains(out, "done") {
+		t.Errorf("dialog should show the task's done status:\n%s", out)
+	}
+	if !strings.Contains(out, "Subtasks") {
+		t.Errorf("dialog should show subtask progress:\n%s", out)
+	}
+	// Edit features: the (editable) description text and the Save button.
+	if !strings.Contains(out, "the description") {
+		t.Errorf("dialog should show the editable description:\n%s", out)
+	}
+	if !strings.Contains(out, "Save") {
+		t.Errorf("dialog should offer Save:\n%s", out)
 	}
 }

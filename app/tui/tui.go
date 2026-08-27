@@ -1,7 +1,8 @@
-// Package tui is the Bubble Tea frontend of the TODO app: a split-pane view
-// with a category/task tree on the left and the selected item's details on the
-// right, an add/edit modal, and the keybindings that drive them. All domain
-// logic lives in internal/todo; this package only renders it and routes keys.
+// Package tui is the Bubble Tea frontend of the TODO app: a single-panel
+// category/task tree and an add/edit dialog that doubles as the selected item's
+// detail view (it shows the item's status and subtask progress alongside its
+// editable title and description), plus the keybindings that drive them. All
+// domain logic lives in internal/todo; this package only renders it and routes keys.
 package tui
 
 import (
@@ -232,50 +233,53 @@ func (m model) escOrQuit() (tea.Model, tea.Cmd) {
 }
 
 // updateMainItemKey handles the item-scoped main-view keys (add/edit/delete/
-// toggle/fold). On the "+ new category" placeholder row the only meaningful
-// action is adding a top-level category; the other item-scoped keys are no-ops.
+// toggle/view) for a real selected item. The "+ new category" placeholder row
+// has its own reduced key set (see updatePlaceholderKey).
 func (m model) updateMainItemKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	onPH := m.tree.onPlaceholder()
+	if m.tree.onPlaceholder() {
+		return m.updatePlaceholderKey(msg)
+	}
 	switch msg.String() {
 	case "enter":
-		if onPH {
-			return m.openForm(targetAddCategory)
-		}
-		m.tree.toggleFold()
-	case " ", "x":
-		if onPH {
+		return m.openForm(targetEdit)
+	case " ":
+		// On a header (category) space expands/collapses it; on a task it toggles
+		// completion. x stays a task-only "toggle done".
+		if sel := m.tree.selected(); sel != nil && sel.Kind == todo.Category {
+			m.tree.toggleFold()
 			return m, nil
 		}
 		return m.toggleDone()
+	case "x":
+		return m.toggleDone()
 	case "n":
-		if onPH {
-			return m.openForm(targetAddCategory)
-		}
 		return m.openForm(targetAddSibling)
 	case "N":
-		if onPH {
-			return m.openForm(targetAddCategory)
-		}
 		return m.openForm(targetAddChild)
 	case "c":
 		return m.openForm(targetAddCategory)
 	case "m":
 		return m.startMove()
 	case "e":
-		if onPH {
-			return m, nil
-		}
 		return m.openForm(targetEdit)
 	case "y":
-		if onPH {
-			return m, nil
-		}
 		return m.copySelection()
 	case "d":
-		if onPH {
-			return m, nil
-		}
 		return m.openDelete()
+	case "D":
+		return m.openClearDone()
+	}
+	return m, nil
+}
+
+// updatePlaceholderKey handles the item keys while the cursor is on the
+// "+ new category" placeholder row, where the only meaningful actions add a
+// top-level category (enter/n/N/c) or clear completed tasks (D); every other
+// item key is a no-op.
+func (m model) updatePlaceholderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter", "n", "N", "c":
+		return m.openForm(targetAddCategory)
 	case "D":
 		return m.openClearDone()
 	}
@@ -550,8 +554,8 @@ func (m model) toggleDone() (tea.Model, tea.Cmd) {
 var writeClipboard = clipboard.WriteAll
 
 // copySelection copies the selected item to the system clipboard as plain text,
-// so a task with a multi-line description can be grabbed whole: the details pane
-// word-wraps inside a bordered panel, which the terminal's mouse selection can't
+// so a task with a multi-line description can be grabbed whole: the edit dialog
+// word-wraps it inside a bordered box, which the terminal's mouse selection can't
 // cleanly capture. On the platforms without a clipboard tool (a bare Linux box),
 // it reports how to get one; any copy error and the success both show in the footer.
 func (m model) copySelection() (tea.Model, tea.Cmd) {
@@ -597,6 +601,7 @@ func (m model) openForm(t formTarget) (tea.Model, tea.Cmd) {
 		}
 		m.editing = sel
 		m.form = newForm(sel.Title, sel.Description, sel.IsTask(), true)
+		m.form.meta = itemMeta(sel)
 	case targetAddCategory:
 		m.form = newForm("", "", false, false)
 	}
@@ -736,9 +741,9 @@ func (m model) View() string {
 	}
 }
 
-// mainView composes the header, the two panels, and the footer to the terminal
-// size. When dim is true the panels render unfocused (the dimmed backdrop
-// behind the modal).
+// mainView composes the header, the task tree, and the footer to the terminal
+// size. When dim is true the tree renders unfocused (the dimmed backdrop behind
+// a modal).
 func (m model) mainView(dim bool) string {
 	w, h := m.width, m.height
 	if w == 0 {
@@ -748,17 +753,11 @@ func (m model) mainView(dim bool) string {
 	if bodyH < 3 {
 		bodyH = 3
 	}
-	leftW := w * 2 / 5
-	rightW := w - leftW
-
-	left := titledBox("Tasks", m.tree.view(leftW-2, m.treeViewHeight()), leftW, bodyH, !dim)
-	right := titledBox("Details", m.detailsView(rightW-2, bodyH-2), rightW, bodyH, false)
-	panels := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-
-	return m.header(w) + "\n" + panels + "\n" + m.footer(w)
+	box := titledBox("Tasks", m.tree.view(w-2, m.treeViewHeight()), w, bodyH, !dim)
+	return m.header(w) + "\n" + box + "\n" + m.footer(w)
 }
 
-// treeViewHeight is how many task rows the left pane can show at the current
+// treeViewHeight is how many task rows the tree pane can show at the current
 // terminal size — the height handed to tree.view. WindowSizeMsg stores it on the
 // tree so its scroll math (reconcileOffset) matches what mainView renders; the
 // two must agree or the viewport clamp would fight the offset. It mirrors the
@@ -814,72 +813,31 @@ func (m model) footer(width int) string {
 	}
 	parts := []string{
 		hint("↑↓", "Move"), hint("←→", "Fold"), hint("space", "Done"), hint("/", "Search"),
-		hint("n/N", "New/Child"), hint("c", "Cat"), hint("m", "Move"), hint("e", "Edit"), hint("y", "Copy"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
+		hint("n/N", "New"), hint("c", "Cat"), hint("m", "Move"), hint("enter/e", "Edit"), hint("y", "Copy"), hint("d", "Del"), hint("D", "Clear"), hint("q", "Quit"),
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }
 
-// detailsView renders the right pane for the selected item: a category's
-// progress, or a task's status, subtask progress, and description.
-func (m model) detailsView(width, height int) string {
-	if m.tree.onPlaceholder() {
-		return " " + helpTextStyle.Render("Add a top-level category here — press c or enter.")
-	}
-	it := m.tree.selected()
+// itemMeta renders the read-only header of the edit dialog: a task's completion
+// status (○ open / ● done) and subtask progress, or a category label and its task
+// count. It carries the old details view's at-a-glance info into the combined
+// view/edit dialog. Empty when there is nothing to show.
+func itemMeta(it *todo.Item) string {
 	if it == nil {
-		return " " + helpTextStyle.Render("Nothing selected — press c to add a category.")
+		return ""
 	}
-	var b strings.Builder
 	if it.Kind == todo.Category {
 		done, total := it.TaskCounts()
-		b.WriteString(" " + highlight(it.Title, m.tree.filter, categoryStyle))
-		b.WriteString("\n\n " + labelStyle.Render("Category"))
-		_, _ = fmt.Fprintf(&b, "\n %d of %d tasks done", done, total)
-		return b.String()
+		return labelStyle.Render("Category") + helpTextStyle.Render(fmt.Sprintf("  ·  %d of %d tasks done", done, total))
 	}
-
 	status := helpTextStyle.Render("○ open")
 	if it.Done {
 		status = doneStyle.Render("● done")
 	}
-	b.WriteString(" " + status)
-	b.WriteString("\n\n " + highlight(it.Title, m.tree.filter, categoryStyle))
 	if done, total := it.TaskCounts(); total > 0 {
-		b.WriteString("\n " + labelStyle.Render("Subtasks") + fmt.Sprintf(" %d/%d done", done, total))
+		status += helpTextStyle.Render("  ·  ") + labelStyle.Render("Subtasks") + helpTextStyle.Render(fmt.Sprintf(" %d/%d done", done, total))
 	}
-	b.WriteString("\n\n")
-	if it.Description != "" {
-		b.WriteString(highlightLines(wrapText(it.Description, width-1), m.tree.filter))
-	} else {
-		b.WriteString(" " + helpTextStyle.Render("No description. Press e to add one."))
-	}
-	return b.String()
-}
-
-// highlightLines applies highlight to each line of a pre-wrapped block, so a
-// search hit in the details pane is marked without disturbing the wrapping.
-func highlightLines(block, query string) string {
-	if query == "" {
-		return block
-	}
-	lines := strings.Split(block, "\n")
-	for i, l := range lines {
-		lines[i] = highlight(l, query, plainStyle)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// wrapText word-wraps s to width and gives every line a one-column left margin.
-func wrapText(s string, width int) string {
-	if width < 4 {
-		width = 4
-	}
-	wrapped := lipgloss.NewStyle().Width(width).Render(s)
-	lines := strings.Split(wrapped, "\n")
-	for i := range lines {
-		lines[i] = " " + lines[i]
-	}
-	return strings.Join(lines, "\n")
+	return status
 }
 
 // overallCounts totals done/total tasks across the whole document.

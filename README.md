@@ -59,9 +59,10 @@ todo path/to/file.md # opens a specific file
 With no argument it defaults to `TODO.md`. If the file doesn't exist yet it
 starts empty and is created on the first change.
 
-The screen is a split pane: a collapsible **category/task tree** on the left and
-the selected item's **details** (status, subtask progress, description) on the
-right.
+The screen is a single collapsible **category/task tree**. Tasks that carry a
+description are marked with a small `≡` glyph; press `enter` (or `e`) on any item
+to open its dialog, which shows the item's status and subtask progress and lets
+you edit its title and description in place (`esc` cancels, `enter`/Save applies).
 
 An example task file:
 
@@ -91,8 +92,9 @@ An example task file:
 | `↑` / `↓` (or `w`/`s`, `k`/`j`) | Move the selection |
 | `PgUp` / `PgDn` | Move the selection by 10 rows |
 | `←` / `→` (or `h`/`l`) | Collapse / expand (Left on a leaf jumps to the parent) |
-| `enter` | Fold / unfold the selected item |
-| `space` / `x` | Toggle a task done |
+| `enter` | Open the selected item's dialog — its status/progress plus its editable title & description |
+| `space` | Toggle a task done, or fold / unfold a header (category) |
+| `x` | Toggle a task done |
 | `n` | New task as a sibling — at the end of the current level (on a category, a task inside it) |
 | `N` | New task as a child — a subtask of the selected task (on a category, a task inside it) |
 | `c` | Add a category (a subcategory when a category is selected) |
@@ -145,7 +147,7 @@ The app owns a small, standard subset of markdown:
 # Work
 
 - [ ] Ship v1.0 release
-  The description sits indented under the task and shows in the right pane.
+  The description sits indented under the task and shows in the item's dialog.
   - [x] Write changelog
   - [ ] Cut the git tag
 - [x] Fix login bug

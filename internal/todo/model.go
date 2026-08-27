@@ -26,7 +26,7 @@ type Item struct {
 	Title       string
 	Level       int    // Category only: header level 1..6
 	Done        bool   // Task only
-	Description string // Task only: free-form text shown in the right pane
+	Description string // Task only: free-form text shown in the details view
 	Children    []*Item
 	Parent      *Item // nil for a root item
 }
