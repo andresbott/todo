@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/andresbott/todo/internal/todo"
@@ -81,6 +83,47 @@ func TestReloadPreservesFold(t *testing.T) {
 	}
 	if hasRow(m, "a") || hasRow(m, "b") {
 		t.Errorf("a collapsed category's children must stay hidden after a reload")
+	}
+}
+
+func TestReloadPreservesViewport(t *testing.T) {
+	// A list taller than the viewport, so the scroll position is in play. The
+	// window height comes from newTestModel's WindowSizeMsg.
+	var b strings.Builder
+	b.WriteString("# Work\n\n")
+	for i := 0; i < 30; i++ {
+		_, _ = fmt.Fprintf(&b, "- [ ] t%d\n", i)
+	}
+	src := b.String()
+	m, _ := newTestModel(t, src)
+
+	// Scroll down well past the first page so the viewport is offset from the top.
+	for i := 0; i < 30; i++ {
+		m = press(m, "down")
+	}
+	wantVH, wantOffset := m.tree.viewHeight, m.tree.offset
+	if wantVH <= 1 || wantOffset == 0 {
+		t.Fatalf("precondition: want a sized, scrolled viewport, got viewHeight=%d offset=%d", wantVH, wantOffset)
+	}
+	sel := m.tree.selected().Title
+
+	// An external edit appends a task at the end (below the cursor, so the selected
+	// row index is unchanged) and the app reloads.
+	changed := src + "- [ ] t30\n"
+	m = send(m, fileReloadedMsg{doc: todo.Parse(changed), content: changed})
+
+	if got := m.tree.selected().Title; got != sel {
+		t.Fatalf("selection must survive the reload: got %q, want %q", got, sel)
+	}
+	// Regression: applyReload built a fresh tree and dropped the viewport state,
+	// resetting viewHeight to 0. reconcileOffset then treats the window as one row
+	// tall and re-pins the scroll to the cursor — the #10 decoupling breaks until
+	// the next terminal resize.
+	if m.tree.viewHeight != wantVH {
+		t.Errorf("reload must preserve viewHeight (else scroll decoupling breaks): got %d, want %d", m.tree.viewHeight, wantVH)
+	}
+	if m.tree.offset != wantOffset {
+		t.Errorf("reload must preserve the scroll offset (the page must not jump): got %d, want %d", m.tree.offset, wantOffset)
 	}
 }
 

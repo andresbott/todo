@@ -94,6 +94,13 @@ func (m *model) applyReload(msg fileReloadedMsg) {
 	m.snapshots = map[*todo.Item]todo.DoneStates{}
 
 	t := newTree(msg.doc)
+	// Carry over the viewport geometry the fresh tree doesn't know about: its
+	// height (only ever set by WindowSizeMsg) and the scroll position. Without
+	// this the new tree keeps viewHeight 0, so reconcileOffset treats the window
+	// as one row tall and re-pins the scroll to the cursor — silently undoing the
+	// scroll/cursor decoupling until the next terminal resize.
+	t.viewHeight = m.tree.viewHeight
+	t.offset = m.tree.offset
 	for _, p := range collapsedPaths {
 		if it := msg.doc.FindByPath(p); it != nil {
 			t.collapsed[it] = true
